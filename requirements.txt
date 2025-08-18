@@ -1,0 +1,12 @@
+geopy
+pytz
+timezonefinder
+vaderSentiment
+transformers
+torch
+sentence-transformers
+scikit-learn
+fastapi
+uvicorn
+python-multipart
+accelerate
