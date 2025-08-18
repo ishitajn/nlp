@@ -26,7 +26,8 @@ class TestPipelines(unittest.TestCase):
         }
         self.expected_keys = [
             "sentiment", "topics", "suggested_topics", "conversation_dynamics",
-            "geoContext", "response_analysis", "recommended_actions", "conversation_brain"
+            "geoContext", "response_analysis", "recommended_actions", "conversation_brain",
+            "llm_prompt_context"
         ]
 
     def test_fast_pipeline(self):

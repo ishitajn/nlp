@@ -1,13 +1,12 @@
 import json
-from .analyzers import (
-    sentiment_analyzer,
-    topic_classifier,
-    conversation_dynamics,
-    geo_time_analyzer,
-    response_analysis,
-    brain_analyzer,
-)
-from .recommender import topic_suggester, action_recommender
+from dating_nlp_bot.analyzers import sentiment_analyzer
+from dating_nlp_bot.analyzers import topic_classifier
+from dating_nlp_bot.analyzers import conversation_dynamics
+from dating_nlp_bot.analyzers import geo_time_analyzer
+from dating_nlp_bot.analyzers import response_analysis
+from dating_nlp_bot.analyzers import brain_analyzer
+from dating_nlp_bot.analyzers import prompt_generator
+from dating_nlp_bot.recommender import topic_suggester, action_recommender
 
 def run_fast_pipeline(payload: dict) -> dict:
     """
@@ -19,6 +18,9 @@ def run_fast_pipeline(payload: dict) -> dict:
     my_location = ui_settings.get("myLocation", "")
     their_location = scraped_data.get("theirLocationString", "")
 
+    # Add myProfile to scraped_data for the prompt generator
+    scraped_data['myProfile'] = ui_settings.get("myProfile", "")
+
     # Run analyzers
     sentiment = sentiment_analyzer.analyze_sentiment_fast(conversation_history)
     topics = topic_classifier.classify_topics_fast(conversation_history)
@@ -26,21 +28,25 @@ def run_fast_pipeline(payload: dict) -> dict:
     geo_context = geo_time_analyzer.analyze_geo_time(my_location, their_location)
     response = response_analysis.analyze_response_fast(conversation_history)
 
+    analysis_results = {
+        "sentiment": sentiment, "topics": topics, "conversation_dynamics": dynamics,
+        "response_analysis": response, "scraped_data": scraped_data
+    }
+
     # Run recommenders
     suggested_topics = topic_suggester.suggest_topics_fast(topics, dynamics)
+    analysis_results["suggested_topics"] = suggested_topics
+    recommended_actions = action_recommender.recommend_actions_fast(analysis_results)
 
-    analysis_for_recommender = {"conversation_dynamics": dynamics, "response_analysis": response, "suggested_topics": suggested_topics}
-    recommended_actions = action_recommender.recommend_actions_fast(analysis_for_recommender)
-
-    # Run brain analyzer
-    analysis_for_brain = {"topics": topics, "conversation_dynamics": dynamics, "suggested_topics": suggested_topics}
-    conversation_brain = brain_analyzer.analyze_brain_fast(analysis_for_brain)
+    # Run brain and prompt generators
+    conversation_brain = brain_analyzer.analyze_brain_fast(analysis_results)
+    llm_prompt_context = prompt_generator.generate_prompt_context(analysis_results)
 
     return {
         "sentiment": sentiment, "topics": topics, "suggested_topics": suggested_topics,
         "conversation_dynamics": dynamics, "geoContext": geo_context,
         "response_analysis": response, "recommended_actions": recommended_actions,
-        "conversation_brain": conversation_brain,
+        "conversation_brain": conversation_brain, **llm_prompt_context
     }
 
 def run_enhanced_pipeline(payload: dict) -> dict:
@@ -53,6 +59,9 @@ def run_enhanced_pipeline(payload: dict) -> dict:
     my_location = ui_settings.get("myLocation", "")
     their_location = scraped_data.get("theirLocationString", "")
 
+    # Add myProfile to scraped_data for the prompt generator
+    scraped_data['myProfile'] = ui_settings.get("myProfile", "")
+
     # Run enhanced analyzers
     sentiment = sentiment_analyzer.analyze_sentiment_enhanced(conversation_history)
     topics = topic_classifier.classify_topics_enhanced(conversation_history)
@@ -60,21 +69,25 @@ def run_enhanced_pipeline(payload: dict) -> dict:
     geo_context = geo_time_analyzer.analyze_geo_time(my_location, their_location)
     response = response_analysis.analyze_response_enhanced(conversation_history)
 
+    analysis_results = {
+        "sentiment": sentiment, "topics": topics, "conversation_dynamics": dynamics,
+        "response_analysis": response, "scraped_data": scraped_data
+    }
+
     # Run recommenders
     suggested_topics = topic_suggester.suggest_topics_fast(topics, dynamics)
+    analysis_results["suggested_topics"] = suggested_topics
+    recommended_actions = action_recommender.recommend_actions_enhanced(analysis_results)
 
-    analysis_for_recommender = {"conversation_dynamics": dynamics, "response_analysis": response, "suggested_topics": suggested_topics}
-    recommended_actions = action_recommender.recommend_actions_enhanced(analysis_for_recommender)
-
-    # Run brain analyzer
-    analysis_for_brain = {"topics": topics, "conversation_dynamics": dynamics, "suggested_topics": suggested_topics}
-    conversation_brain = brain_analyzer.analyze_brain_enhanced(conversation_history, analysis_for_brain)
+    # Run brain and prompt generators
+    conversation_brain = brain_analyzer.analyze_brain_enhanced(conversation_history, analysis_results)
+    llm_prompt_context = prompt_generator.generate_prompt_context(analysis_results)
 
     return {
         "sentiment": sentiment, "topics": topics, "suggested_topics": suggested_topics,
         "conversation_dynamics": dynamics, "geoContext": geo_context,
         "response_analysis": response, "recommended_actions": recommended_actions,
-        "conversation_brain": conversation_brain,
+        "conversation_brain": conversation_brain, **llm_prompt_context
     }
 
 def process_payload(payload: dict) -> dict:
