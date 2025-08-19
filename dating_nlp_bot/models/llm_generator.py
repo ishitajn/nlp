@@ -1,14 +1,16 @@
-import torch
-from transformers import pipeline
+from ctransformers import AutoModelForCausalLM
 import json
 from dating_nlp_bot import config
 
 class LLMGenerator:
     def __init__(self, model_name=config.LLM_GENERATOR_MODEL):
-        self.pipe = pipeline("text-generation",
-                             model=model_name,
-                             torch_dtype=torch.bfloat16,
-                             device_map="auto")
+        # For ctransformers, we specify the model repository and the specific GGUF file
+        self.llm = AutoModelForCausalLM.from_pretrained(
+            "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
+            model_file="tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+            model_type="llama",
+            context_length=2048
+        )
 
     def generate(self, conversation_history: list[dict], analysis: dict) -> dict:
         """
@@ -16,11 +18,16 @@ class LLMGenerator:
         """
         prompt = self._create_prompt(conversation_history, analysis)
 
-        raw_output = self.pipe(prompt, max_new_tokens=256, do_sample=True, temperature=0.7, top_k=50, top_p=0.95)
+        raw_output = self.llm(
+            prompt,
+            max_new_tokens=256,
+            temperature=0.7,
+            top_k=50,
+            top_p=0.95,
+            repetition_penalty=1.2 # Added to discourage repetition
+        )
 
-        llm_response = raw_output[0]['generated_text']
-
-        return self._parse_output(llm_response)
+        return self._parse_output(raw_output)
 
     def _create_prompt(self, conversation_history: list[dict], analysis: dict) -> str:
         """
@@ -83,8 +90,12 @@ JSON output:
         Parses the LLM's string output to extract the JSON object.
         """
         try:
-            # The response will contain the prompt, we need to find the json part
-            json_str = llm_response.split("```json")[1].split("```")[0].strip()
+            # The model should generate a JSON string, optionally in a markdown block.
+            if "```json" in llm_response:
+                json_str = llm_response.split("```json")[1].split("```")[0].strip()
+            else:
+                json_str = llm_response
+
             return json.loads(json_str)
         except (IndexError, json.JSONDecodeError):
             # Fallback in case the LLM output is not as expected

@@ -3,4 +3,7 @@
 # To install all dependencies, run:
 # pip install -r requirements.txt
 
+ctransformers==0.2.27
+optimum[onnxruntime]
+
 -r requirements.lock
