@@ -1,12 +1,6 @@
-fastapi
-uvicorn
-python-multipart
-geopy
-pytz
-timezonefinder
-vaderSentiment
-transformers
-torch
-sentence-transformers
-scikit-learn
-accelerate
+# This file is used for defining the direct dependencies of the project.
+# For reproducible builds, the full list of pinned dependencies is in `requirements.lock`.
+# To install all dependencies, run:
+# pip install -r requirements.txt
+
+-r requirements.lock

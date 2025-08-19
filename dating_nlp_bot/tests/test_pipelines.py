@@ -1,6 +1,6 @@
 import unittest
 import json
-from dating_nlp_bot.main import process_payload
+from dating_nlp_bot.pipelines import process_payload
 
 class TestPipelines(unittest.TestCase):
     def setUp(self):
