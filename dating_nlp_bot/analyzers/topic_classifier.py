@@ -1,8 +1,9 @@
 import re
 from collections import defaultdict
-from dating_nlp_bot.models.topic_model import EnhancedTopicModel
-from dating_nlp_bot.models.sentiment_model import EnhancedSentimentModel
+from dating_nlp_bot.model_loader import get_models
 from dating_nlp_bot.utils.keywords import TOPIC_KEYWORDS
+
+models = get_models()
 
 def classify_topics_fast(conversation_history: list[dict]) -> dict:
     """
@@ -63,10 +64,18 @@ def classify_topics_enhanced(conversation_history: list[dict]) -> dict:
     if not messages:
         return classify_topics_fast([]) # Return empty structure
 
-    topic_model = EnhancedTopicModel(num_clusters=min(5, len(messages)))
+    topic_model = models.topic_model_enhanced
+    if not topic_model:
+        return {"error": "Enhanced topic model not available"}
+
+    # The number of clusters should be handled within the model if it's dynamic
+    # For now, we assume the pre-loaded model is configured appropriately
     topic_map, labels = topic_model.get_topics(messages)
 
-    sentiment_model = EnhancedSentimentModel()
+    sentiment_model = models.sentiment_model_enhanced
+    if not sentiment_model:
+        return {"error": "Enhanced sentiment model not available"}
+
     sentiments = [sentiment_model.predict(msg) for msg in messages]
 
     cluster_sentiments = defaultdict(list)

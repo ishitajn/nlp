@@ -1,11 +1,16 @@
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from dating_nlp_bot.models.sentiment_model import EnhancedSentimentModel
+from dating_nlp_bot.model_loader import get_models
+
+models = get_models()
 
 def analyze_sentiment_enhanced(conversation_history: list[dict]) -> dict:
     """
     Analyzes sentiment for a conversation history using the enhanced model.
     """
-    model = EnhancedSentimentModel()
+    model = models.sentiment_model_enhanced
+    if not model:
+        # Fallback or error handling if model failed to load
+        return {"overall": "neutral", "error": "Enhanced sentiment model not available"}
+
     overall_scores = []
 
     for message in conversation_history:
@@ -33,7 +38,11 @@ def analyze_sentiment_fast(conversation_history: list[dict]) -> dict:
     """
     Analyzes sentiment for a conversation history using VADER (fast mode).
     """
-    analyzer = SentimentIntensityAnalyzer()
+    analyzer = models.sentiment_analyzer_fast
+    if not analyzer:
+        # Fallback or error handling
+        return {"overall": "neutral", "error": "VADER sentiment analyzer not available"}
+
     overall_scores = []
 
     for message in conversation_history:

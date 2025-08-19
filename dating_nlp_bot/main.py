@@ -3,6 +3,7 @@ import logging
 from fastapi import FastAPI, HTTPException
 from dating_nlp_bot.schemas import AnalysisPayload, AnalysisOutput
 from dating_nlp_bot.pipelines import process_payload
+from dating_nlp_bot.model_loader import models
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,7 +16,16 @@ app = FastAPI(
     version="3.0.0",
 )
 
-# --- API Endpoint ---
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Application startup...")
+    models.load_models()
+
+# --- API Endpoints ---
+@app.get("/")
+def read_root():
+    return {"status": "online"}
+
 @app.post("/analyze", response_model=AnalysisOutput)
 def analyze_conversation(payload: AnalysisPayload):
     try:

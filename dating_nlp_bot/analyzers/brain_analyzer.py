@@ -1,4 +1,6 @@
-from dating_nlp_bot.models.llm_generator import LLMGenerator
+from dating_nlp_bot.model_loader import get_models
+
+models = get_models()
 
 SUGGESTED_QUESTIONS = {
     "travel": ["What's the most adventurous trip you've ever taken?", "If you could travel anywhere tomorrow, where would you go?"],
@@ -57,8 +59,12 @@ def analyze_brain_enhanced(conversation_history: list[dict], analysis: dict) -> 
     """
     Generates the conversation brain output (enhanced mode).
     """
+    llm_generator = models.llm_generator
+    if not llm_generator:
+        print("LLM generator not available. Falling back to fast brain analysis.")
+        return analyze_brain_fast(analysis)
+
     try:
-        llm_generator = LLMGenerator()
         return llm_generator.generate(conversation_history, analysis)
     except Exception as e:
         print(f"LLM generation failed: {e}. Falling back to fast brain analysis.")

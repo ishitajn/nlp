@@ -1,8 +1,14 @@
 import unittest
 import json
 from dating_nlp_bot.pipelines import process_payload
+from dating_nlp_bot.model_loader import models
 
 class TestPipelines(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        """Load models once for all tests."""
+        models.load_models()
+
     def setUp(self):
         self.sample_payload = {
             "matchId": "12345",
