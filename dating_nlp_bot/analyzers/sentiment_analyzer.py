@@ -1,5 +1,5 @@
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from ..models.sentiment_model import EnhancedSentimentModel
+from dating_nlp_bot.models.sentiment_model import EnhancedSentimentModel
 
 def analyze_sentiment_enhanced(conversation_history: list[dict]) -> dict:
     """

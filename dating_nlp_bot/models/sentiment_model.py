@@ -1,6 +1,6 @@
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 import torch
-from .. import config
+from dating_nlp_bot import config
 
 class EnhancedSentimentModel:
     def __init__(self, model_name=config.ENHANCED_SENTIMENT_MODEL):

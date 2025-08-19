@@ -1,5 +1,8 @@
 import re
-from ..models.adult_model import EnhancedAdultModel
+from dating_nlp_bot.models.adult_model import EnhancedAdultModel
+from dating_nlp_bot.utils.keywords import TOPIC_KEYWORDS
+
+FLIRTATION_KEYWORDS = TOPIC_KEYWORDS['flirt'] + TOPIC_KEYWORDS['sexual']
 
 def analyze_adult_content_enhanced(conversation_history: list[dict]) -> dict:
     """
@@ -28,37 +31,22 @@ def analyze_adult_content_enhanced(conversation_history: list[dict]) -> dict:
         "sexualResponseSuggestion": sexual_response_suggestion,
     }
 
-FLIRTATION_KEYWORDS = {
-    "low": ["cute", "sweet", "nice", "kind"],
-    "medium": ["hot", "sexy", "beautiful", "gorgeous", "attractive"],
-    "high": ["desire", "passion", "intimate", "erotic", "seductive"],
-    "explicit": ["sex", "fuck", "dick", "pussy", "cum", "oral", "anal", "kinky"],
-}
-
 def analyze_adult_content_fast(conversation_history: list[dict]) -> dict:
     """
     Analyzes adult content in a conversation history using keyword matching (fast mode).
     """
     full_text = " ".join([message.get("content", "").lower() for message in conversation_history])
 
-    level_counts = {level: 0 for level in FLIRTATION_KEYWORDS.keys()}
+    # Reusing the logic from the old implementation, but simplified
+    level = "low"
+    if any(re.search(r'\b' + kw + r'\b', full_text) for kw in TOPIC_KEYWORDS['sexual']):
+        level = "high" # Simplified mapping for fast mode
+    elif any(re.search(r'\b' + kw + r'\b', full_text) for kw in TOPIC_KEYWORDS['flirt']):
+        level = "medium"
 
-    for level, keywords in FLIRTATION_KEYWORDS.items():
-        for keyword in keywords:
-            if re.search(r'\b' + keyword + r'\b', full_text):
-                level_counts[level] += 1
-
-    flirtation_level = "low"
-    if level_counts["explicit"] > 0:
-        flirtation_level = "explicit"
-    elif level_counts["high"] > 0:
-        flirtation_level = "high"
-    elif level_counts["medium"] > 0:
-        flirtation_level = "medium"
-
-    sexual_response_suggestion = flirtation_level in ["high", "explicit"]
+    sexual_response_suggestion = level in ["high", "explicit"]
 
     return {
-        "flirtation_level": flirtation_level,
+        "flirtation_level": level,
         "sexualResponseSuggestion": sexual_response_suggestion,
     }

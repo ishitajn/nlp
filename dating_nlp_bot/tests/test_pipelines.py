@@ -1,6 +1,6 @@
 import unittest
 import json
-from ..main import process_payload
+from dating_nlp_bot.main import process_payload
 
 class TestPipelines(unittest.TestCase):
     def setUp(self):
@@ -39,7 +39,6 @@ class TestPipelines(unittest.TestCase):
         for key in self.expected_keys:
             self.assertIn(key, result)
 
-        # Check for some nested keys
         self.assertIn("overall", result["sentiment"])
         self.assertIn("map", result["topics"])
         self.assertIn("predictive_actions", result["conversation_brain"])
@@ -53,11 +52,9 @@ class TestPipelines(unittest.TestCase):
         for key in self.expected_keys:
             self.assertIn(key, result)
 
-        # Check for some nested keys
         self.assertIn("overall", result["sentiment"])
         self.assertIn("map", result["topics"])
         self.assertIn("predictive_actions", result["conversation_brain"])
-
 
 if __name__ == '__main__':
     unittest.main()

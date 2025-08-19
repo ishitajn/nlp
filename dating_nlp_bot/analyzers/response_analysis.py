@@ -1,5 +1,4 @@
-from datetime import datetime, timedelta
-from ..utils.text_preprocessing import clean_text
+from dating_nlp_bot.utils.text_preprocessing import clean_text
 
 LOCATION_KEYWORDS = ["location", "city", "country", "place", "area", "neighborhood"]
 
@@ -21,11 +20,7 @@ def analyze_response_fast(conversation_history: list[dict]) -> dict:
     last_response = "user" if last_response_role == "user" else "match"
 
     # Find the last message from the match
-    last_match_message = None
-    for msg in reversed(conversation_history):
-        if msg['role'] == 'assistant':
-            last_match_message = msg
-            break
+    last_match_message = next((msg for msg in reversed(conversation_history) if msg['role'] == 'assistant'), None)
 
     # Analyze last match response
     contains_question = False

@@ -1,7 +1,7 @@
 import torch
 from transformers import pipeline
 import json
-from .. import config
+from dating_nlp_bot import config
 
 class LLMGenerator:
     def __init__(self, model_name=config.LLM_GENERATOR_MODEL):
@@ -44,7 +44,7 @@ assistant: Awesome! What's your favorite trail? I love the one up by the lake.
 user: Oh, I know that one! It's beautiful. I also love cooking, especially Italian food.
 
 Analysis:
-- Topics: hiking, cooking, food
+- Topics: {{"hiking": ["hiking"], "food": ["cooking", "food"]}}
 - Stage: starting
 - Flirtation: low
 
@@ -57,7 +57,7 @@ JSON output:
         "topic_switch_suggestions": ["travel", "movies", "music"]
     }},
     "memory_layer": {{
-        "recent_topics": ["hiking", "cooking"]
+        "recent_topics": ["hiking", "food"]
     }}
 }}
 ```
@@ -68,7 +68,7 @@ Conversation:
 {conv_str}
 
 Analysis:
-- Topics: {analysis.get("topics", {}).get("map", {}).keys()}
+- Topics: {analysis.get("topics", {}).get("map", {})}
 - Stage: {analysis.get("conversation_dynamics", {}).get("stage")}
 - Flirtation: {analysis.get("conversation_dynamics", {}).get("flirtation_level")}
 

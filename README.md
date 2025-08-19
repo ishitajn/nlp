@@ -35,7 +35,7 @@ This project provides a comprehensive NLP-driven analysis of dating conversation
 
 1.  **Start the API server** using Uvicorn:
     ```bash
-    uvicorn dating_nlp_bot.api:app --reload
+    uvicorn dating_nlp_bot.main:app --reload
     ```
     The `--reload` flag enables hot-reloading, which is useful for development.
 
@@ -66,7 +66,7 @@ The API expects a `POST` request to `/analyze` with a JSON body in the following
       {
         "role": "user",
         "content": "Thanks! You too. I see you like dogs. I have a golden retriever!",
-        "date": "2024-08-18T10:05:00"
+        "date": "2024-08-18T10:_05:00"
       }
     ]
   },

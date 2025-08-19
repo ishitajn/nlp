@@ -7,7 +7,7 @@ def get_location_details(location_string: str) -> dict | None:
     Gets location details (latitude, longitude, address, city, state, country) from a location string.
     """
     try:
-        geolocator = Nominatim(user_agent="dating_nlp_bot")
+        geolocator = Nominatim(user_agent="dating_nlp_bot_v2")
         location = geolocator.geocode(location_string, addressdetails=True, timeout=10)
         if location:
             address = location.raw.get('address', {})

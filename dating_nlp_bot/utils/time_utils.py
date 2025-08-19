@@ -35,7 +35,7 @@ def get_timezone_difference(tz1_str: str, tz2_str: str) -> int:
     try:
         tz1 = pytz.timezone(tz1_str)
         tz2 = pytz.timezone(tz2_str)
-        now = datetime.now() # Use naive datetime
+        now = datetime.utcnow()
         offset1 = tz1.utcoffset(now)
         offset2 = tz2.utcoffset(now)
         return int((offset1 - offset2).total_seconds() / 3600)

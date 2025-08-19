@@ -1,5 +1,5 @@
 from sentence_transformers import SentenceTransformer
-from .. import config
+from dating_nlp_bot import config
 
 class EmbeddingModel:
     def __init__(self, model_name=config.EMBEDDING_MODEL):

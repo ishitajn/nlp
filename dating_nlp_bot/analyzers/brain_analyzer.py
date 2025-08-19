@@ -1,11 +1,12 @@
+from dating_nlp_bot.models.llm_generator import LLMGenerator
 
 SUGGESTED_QUESTIONS = {
-    "travel": ["What's the most adventurous trip you've ever taken?", "If you could travel anywhere tomorrow, where would you go?", "Do you prefer relaxing on a beach or exploring a new city?"],
-    "food": ["What's your go-to comfort food?", "Are you more of a cook or a take-out person?", "What's the best meal you've had recently?"],
-    "sports": ["What's your favorite way to stay active?", "Are you a fan of any sports teams?", "Do you enjoy working out in a gym or outdoors?"],
-    "career": ["What do you enjoy most about your job?", "What are your long-term career goals?", "What's the most interesting project you've worked on?"],
-    "hobbies": ["What's a hobby you've always wanted to try?", "How do you like to unwind after a long week?", "What's a movie or book that has stuck with you?"],
-    "default": ["What's something that made you smile recently?", "What are you most looking forward to this week?", "What's a fun fact about you?"]
+    "travel": ["What's the most adventurous trip you've ever taken?", "If you could travel anywhere tomorrow, where would you go?"],
+    "food": ["What's your go-to comfort food?", "Are you more of a cook or a take-out person?"],
+    "sports": ["What's your favorite way to stay active?", "Are you a fan of any sports teams?"],
+    "career": ["What do you enjoy most about your job?", "What are your long-term career goals?"],
+    "hobbies": ["What's a hobby you've always wanted to try?", "How do you like to unwind after a long week?"],
+    "default": ["What's something that made you smile recently?", "What are you most looking forward to this week?"]
 }
 
 def analyze_brain_fast(analysis: dict) -> dict:
@@ -25,9 +26,9 @@ def analyze_brain_fast(analysis: dict) -> dict:
     suggested_questions = []
     next_topic = suggestions.get("next_topic")
     if next_topic and next_topic in SUGGESTED_QUESTIONS:
-        suggested_questions.extend(SUGGESTED_QUESTIONS[next_topic][:2])
+        suggested_questions.extend(SUGGESTED_QUESTIONS[next_topic])
     else:
-        suggested_questions.extend(SUGGESTED_QUESTIONS["default"][:2])
+        suggested_questions.extend(SUGGESTED_QUESTIONS["default"])
 
     # Goal Tracking
     goal_tracking = []
@@ -37,12 +38,11 @@ def analyze_brain_fast(analysis: dict) -> dict:
         goal_tracking.append("Build rapport and find common interests.")
     elif stage == "active":
         goal_tracking.append("Maintain engagement and deepen the connection.")
-        if flirt_level in ["medium", "high"]:
+        if flirt_level in ["medium", "high", "explicit"]:
             goal_tracking.append("Gauge flirtation comfort level.")
         if flirt_level in ["high", "explicit"]:
             goal_tracking.append("Move to in-person meeting.")
 
-    # Topic Switch Suggestions
     topic_switch_suggestions = [suggestions.get("next_topic")] if suggestions.get("next_topic") else []
 
     predictive_actions = {
@@ -51,12 +51,7 @@ def analyze_brain_fast(analysis: dict) -> dict:
         "topic_switch_suggestions": topic_switch_suggestions
     }
 
-    return {
-        "predictive_actions": predictive_actions,
-        "memory_layer": memory_layer,
-    }
-
-from ..models.llm_generator import LLMGenerator
+    return { "predictive_actions": predictive_actions, "memory_layer": memory_layer }
 
 def analyze_brain_enhanced(conversation_history: list[dict], analysis: dict) -> dict:
     """
@@ -66,6 +61,5 @@ def analyze_brain_enhanced(conversation_history: list[dict], analysis: dict) -> 
         llm_generator = LLMGenerator()
         return llm_generator.generate(conversation_history, analysis)
     except Exception as e:
-        # If the LLM fails for any reason, fallback to the fast (rule-based) method
         print(f"LLM generation failed: {e}. Falling back to fast brain analysis.")
         return analyze_brain_fast(analysis)

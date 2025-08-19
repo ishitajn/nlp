@@ -4,7 +4,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from collections import defaultdict
 
 from .embeddings import EmbeddingModel
-from ..utils.keywords import TOPIC_KEYWORDS
+from dating_nlp_bot.utils.keywords import TOPIC_KEYWORDS
 
 class EnhancedTopicModel:
     def __init__(self, num_clusters=5):

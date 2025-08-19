@@ -1,4 +1,4 @@
-from ..utils import location_utils, time_utils
+from dating_nlp_bot.utils import location_utils, time_utils
 from datetime import datetime
 import pytz
 
@@ -20,8 +20,11 @@ def analyze_geo_time(my_location_str: str, their_location_str: str) -> dict:
         user_tz_str = time_utils.get_timezone(user_loc['latitude'], user_loc['longitude'])
         user_time_str = ""
         if user_tz_str:
-            user_tz = pytz.timezone(user_tz_str)
-            user_time_str = datetime.now(user_tz).isoformat()
+            try:
+                user_tz = pytz.timezone(user_tz_str)
+                user_time_str = datetime.now(user_tz).isoformat()
+            except pytz.UnknownTimeZoneError:
+                user_time_str = ""
 
         user_context = {
             "address": user_loc['address'], "city": user_loc['city'], "state": user_loc['state'],
@@ -34,8 +37,11 @@ def analyze_geo_time(my_location_str: str, their_location_str: str) -> dict:
         match_tz_str = time_utils.get_timezone(match_loc['latitude'], match_loc['longitude'])
         match_time_str = ""
         if match_tz_str:
-            match_tz = pytz.timezone(match_tz_str)
-            match_time_str = datetime.now(match_tz).isoformat()
+            try:
+                match_tz = pytz.timezone(match_tz_str)
+                match_time_str = datetime.now(match_tz).isoformat()
+            except pytz.UnknownTimeZoneError:
+                match_time_str = ""
 
         match_context = {
             "address": match_loc['address'], "city": match_loc['city'], "state": match_loc['state'],
