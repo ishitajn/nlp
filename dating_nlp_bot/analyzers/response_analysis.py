@@ -43,10 +43,3 @@ def analyze_response_fast(conversation_history: list[dict]) -> dict:
             "related_to_location": related_to_location,
         },
     }
-
-def analyze_response_enhanced(conversation_history: list[dict]) -> dict:
-    """
-    Analyzes the last responses from the user and the match (enhanced mode).
-    For now, it's the same as the fast mode.
-    """
-    return analyze_response_fast(conversation_history)

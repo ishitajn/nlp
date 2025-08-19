@@ -1,4 +1,3 @@
-from collections import defaultdict
 
 SUGGESTED_QUESTIONS = {
     "travel": ["What's the most adventurous trip you've ever taken?", "If you could travel anywhere tomorrow, where would you go?", "Do you prefer relaxing on a beach or exploring a new city?"],

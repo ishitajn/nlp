@@ -1,8 +1,9 @@
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 import torch
+from .. import config
 
 class EnhancedAdultModel:
-    def __init__(self, model_name="unitary/toxic-bert"):
+    def __init__(self, model_name=config.ENHANCED_ADULT_MODEL):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
         self.labels = ['toxic', 'severe_toxic', 'obscene', 'threat', 'insult', 'identity_hate']

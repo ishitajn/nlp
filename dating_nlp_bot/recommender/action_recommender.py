@@ -47,10 +47,3 @@ def recommend_actions_fast(analysis: dict) -> dict:
         "dateArcPhase": "escalation" if escalate_flirtation else "rapport_building",
         "suggestedResponseStyle": "direct" if dynamics.get("pace") == "fast" else "thoughtful",
     }
-
-def recommend_actions_enhanced(analysis: dict) -> dict:
-    """
-    Recommends UI actions based on the analysis results (enhanced mode).
-    For now, it's the same as the fast mode.
-    """
-    return recommend_actions_fast(analysis)

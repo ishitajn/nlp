@@ -1,9 +1,10 @@
 import torch
 from transformers import pipeline
 import json
+from .. import config
 
 class LLMGenerator:
-    def __init__(self, model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"):
+    def __init__(self, model_name=config.LLM_GENERATOR_MODEL):
         self.pipe = pipeline("text-generation",
                              model=model_name,
                              torch_dtype=torch.bfloat16,

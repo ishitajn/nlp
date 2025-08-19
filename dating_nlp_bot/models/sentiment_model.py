@@ -1,8 +1,9 @@
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 import torch
+from .. import config
 
 class EnhancedSentimentModel:
-    def __init__(self, model_name="cardiffnlp/twitter-roberta-base-sentiment"):
+    def __init__(self, model_name=config.ENHANCED_SENTIMENT_MODEL):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
         self.labels = ["negative", "neutral", "positive"]
