@@ -1,6 +1,7 @@
 import shelve
 import hashlib
 import json
+import os
 from dating_nlp_bot.analyzers import (
     sentiment_analyzer,
     topic_classifier,
@@ -11,7 +12,8 @@ from dating_nlp_bot.analyzers import (
 )
 from dating_nlp_bot.recommender import topic_suggester, action_recommender
 
-CACHE_DB = "analysis_cache.db"
+CACHE_DB = os.path.abspath("analysis_cache.db")
+print(f"Cache file path: {CACHE_DB}")
 
 def run_fast_pipeline(payload: dict) -> dict:
     scraped_data = payload.get("scraped_data", {})

@@ -64,16 +64,15 @@ def analyze_brain_enhanced(conversation_history: list[dict], analysis: dict) -> 
     their_profile = scraped_data.get("theirProfile", "")
 
     prompt = (
-        f"This is an analysis of a dating conversation. "
-        f"My profile: '{my_profile}'. "
-        f"Their profile: '{their_profile}'. "
-        f"The conversation so far: '{full_text[-1000:]}' (last 1000 chars). "
-        f"The main topics discussed are: {', '.join(topics)}. "
-        f"Based on this, generate some brief, actionable advice for the user. "
-        f"Provide a list of 3 suggested questions to ask next. "
-        f"Provide a list of 2 potential goals for the conversation. "
-        f"Provide a list of 2 topic switch suggestions. "
-        f"Format the output clearly with headers like 'Suggested Questions:', 'Goal Tracking:', and 'Topic Switch Suggestions:'"
+        f"Analyze the following dating conversation and provide actionable advice.\n\n"
+        f"My Profile: '{my_profile}'\n"
+        f"Their Profile: '{their_profile}'\n"
+        f"Conversation (last 1000 chars): '{full_text[-1000:]}'\n"
+        f"Main Topics: {', '.join(topics)}\n\n"
+        f"Generate a response in the following format exactly:\n"
+        f"Suggested Questions:\n- Question 1\n- Question 2\n- Question 3\n\n"
+        f"Goal Tracking:\n- Goal 1\n- Goal 2\n\n"
+        f"Topic Switch Suggestions:\n- Suggestion 1\n- Suggestion 2\n"
     )
 
     try:
@@ -84,15 +83,15 @@ def analyze_brain_enhanced(conversation_history: list[dict], analysis: dict) -> 
         goals = re.findall(r"Goal Tracking:\n(.*?)\n\n", generated_text, re.DOTALL)
         switches = re.findall(r"Topic Switch Suggestions:\n(.*?)$", generated_text, re.DOTALL)
 
-        suggested_questions = [q.strip() for q in questions[0].split('\n') if q.strip()] if questions else ["Ask about their day."]
-        goal_tracking = [g.strip() for g in goals[0].split('\n') if g.strip()] if goals else ["Keep the conversation flowing."]
-        topic_switch_suggestions = [s.strip() for s in switches[0].split('\n') if s.strip()] if switches else ["Talk about hobbies."]
+        suggested_questions = [q.strip() for q in questions[0].split('\n') if q.strip()] if questions else []
+        goal_tracking = [g.strip() for g in goals[0].split('\n') if g.strip()] if goals else []
+        topic_switch_suggestions = [s.strip() for s in switches[0].split('\n') if s.strip()] if switches else []
 
     except Exception as e:
-        # If model fails, fallback to a simpler set of suggestions
-        suggested_questions = ["How is your week going?", "What do you do for fun?"]
-        goal_tracking = ["Build rapport."]
-        topic_switch_suggestions = ["Ask about their hobbies or weekend plans."]
+        # If model or parsing fails, return empty lists
+        suggested_questions = []
+        goal_tracking = []
+        topic_switch_suggestions = []
 
     # Memory Layer (from fast analysis)
     fast_brain = analyze_brain_fast(analysis)
