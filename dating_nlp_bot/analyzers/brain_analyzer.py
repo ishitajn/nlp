@@ -1,15 +1,7 @@
 from dating_nlp_bot.model_loader import get_models
+from dating_nlp_bot.utils.suggestions import SUGGESTED_QUESTIONS
 
 models = get_models()
-
-SUGGESTED_QUESTIONS = {
-    "travel": ["What's the most adventurous trip you've ever taken?", "If you could travel anywhere tomorrow, where would you go?"],
-    "food": ["What's your go-to comfort food?", "Are you more of a cook or a take-out person?"],
-    "sports": ["What's your favorite way to stay active?", "Are you a fan of any sports teams?"],
-    "career": ["What do you enjoy most about your job?", "What are your long-term career goals?"],
-    "hobbies": ["What's a hobby you've always wanted to try?", "How do you like to unwind after a long week?"],
-    "default": ["What's something that made you smile recently?", "What are you most looking forward to this week?"]
-}
 
 def analyze_brain_fast(analysis: dict) -> dict:
     """
@@ -58,14 +50,6 @@ def analyze_brain_fast(analysis: dict) -> dict:
 def analyze_brain_enhanced(conversation_history: list[dict], analysis: dict) -> dict:
     """
     Generates the conversation brain output (enhanced mode).
+    This now falls back to the fast analysis, as the LLM was unreliable.
     """
-    llm_generator = models.llm_generator
-    if not llm_generator:
-        print("LLM generator not available. Falling back to fast brain analysis.")
-        return analyze_brain_fast(analysis)
-
-    try:
-        return llm_generator.generate(conversation_history, analysis)
-    except Exception as e:
-        print(f"LLM generation failed: {e}. Falling back to fast brain analysis.")
-        return analyze_brain_fast(analysis)
+    return analyze_brain_fast(analysis)
