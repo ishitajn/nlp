@@ -70,18 +70,14 @@ def analyze_brain_enhanced(conversation_history: list[dict], analysis: dict) -> 
     scraped_data = analysis.get("scraped_data", {})
     my_profile = scraped_data.get("myProfile", "")
     their_profile = scraped_data.get("theirProfile", "")
-    last_messages = conversation_history[-10:]
-    formatted_history = "\n".join([f"<{msg['role']}>: {msg['content']}" for msg in last_messages])
 
-    json_schema = """
-{
-  "suggested_questions": ["question 1", "question 2", "question 3"],
-  "goal_tracking": ["goal 1", "goal 2"],
-  "topic_switch_suggestions": ["topic 1", "topic 2"]
-}
-"""
+    # Dynamically build conversation history to fit within context window
+    MAX_CONTEXT_TOKENS = 512
+    # Leave a buffer for model to generate response
+    PROMPT_TOKEN_LIMIT = MAX_CONTEXT_TOKENS - 256
 
-    prompt = (
+    # Base prompt without history
+    base_prompt = (
         f"<|system|>\n"
         f"You are a helpful dating assistant. Your task is to analyze a dating conversation and provide actionable advice. "
         f"Based on the user's profile, the match's profile, and the recent conversation history, generate a JSON object with three keys: "
@@ -89,13 +85,27 @@ def analyze_brain_enhanced(conversation_history: list[dict], analysis: dict) -> 
         f"'goal_tracking' (a list of 2 potential conversational goals), and "
         f"'topic_switch_suggestions' (a list of 2 new topics to steer the conversation towards). "
         f"The user's role is 'user', and the match's role is 'assistant'. "
-        f"Ensure your output is a single, valid JSON object and nothing else. Do not include any text before or after the JSON object. Adhere to this JSON schema: {json_schema}\n"
+        f"Ensure your output is a single, valid JSON object and nothing else.\n"
         f"<|user|>\n"
         f"My Profile: {my_profile}\n"
         f"Their Profile: {their_profile}\n"
-        f"Conversation History:\n{formatted_history}\n"
-        f"<|assistant|>\n"
     )
+
+    formatted_history = []
+    current_token_count = len(llm.tokenize(base_prompt))
+
+    for message in reversed(conversation_history):
+        message_str = f"<{message['role']}>: {message['content']}\n"
+        message_token_count = len(llm.tokenize(message_str))
+
+        if current_token_count + message_token_count <= PROMPT_TOKEN_LIMIT:
+            formatted_history.insert(0, message_str)
+            current_token_count += message_token_count
+        else:
+            break
+
+    history_str = "".join(formatted_history)
+    prompt = f"{base_prompt}Conversation History:\n{history_str}<|assistant|>\n"
 
     predictive_actions = {
         "suggested_questions": [],
