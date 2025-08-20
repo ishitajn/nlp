@@ -23,7 +23,7 @@ def classify_topics_fast(conversation_history: list[dict]) -> dict:
     female_centric_topics = ["fashion", "wellness", "hobbies", "social", "relationships"]
 
     for topic, keywords in TOPIC_KEYWORDS.items():
-        matched_keywords = [kw for kw in keywords if re.search(r'\\b' + kw + r'\\b', full_text)]
+        matched_keywords = [kw for kw in keywords if re.search(r'\b' + kw + r'\b', full_text)]
         if not matched_keywords:
             continue
 

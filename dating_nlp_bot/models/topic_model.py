@@ -11,7 +11,7 @@ class EnhancedTopicModel:
         self.num_clusters = num_clusters
         self.embedding_model = EmbeddingModel()
         self.kmeans = KMeans(n_clusters=self.num_clusters, random_state=42, n_init=10)
-        self.vectorizer = TfidfVectorizer(stop_words='english', max_features=10)
+        self.vectorizer = TfidfVectorizer(stop_words='english', max_features=1000)
 
     def get_topics(self, messages: list[str]) -> tuple[dict, list[int]]:
         """
@@ -51,16 +51,25 @@ class EnhancedTopicModel:
 
         general_topics = ["travel", "food", "sports", "career", "flirt", "sexual", "emotions"]
         female_centric_topics = ["fashion", "wellness", "hobbies", "social", "relationships"]
+        female_centric_keywords = {kw for topic in female_centric_topics for kw in TOPIC_KEYWORDS.get(topic, [])}
 
         for cluster_id, keywords in cluster_keywords.items():
             for keyword in keywords:
+                keyword_str = str(keyword)
+
+                # Check if the keyword belongs to a female-centric topic
+                if keyword_str in female_centric_keywords:
+                    for topic in female_centric_topics:
+                        if keyword_str in TOPIC_KEYWORDS.get(topic, []):
+                            topic_map['female_centric'][topic].append(keyword_str)
+                            # Do not break here to allow a keyword to be in multiple female-centric topics
+
+                # Check for general topics
                 for topic, topic_kws in TOPIC_KEYWORDS.items():
-                    if str(keyword) in topic_kws:
+                    if topic not in female_centric_topics and keyword_str in topic_kws:
                         if topic in general_topics:
-                            topic_map[topic].append(str(keyword))
-                        elif topic in female_centric_topics:
-                            topic_map['female_centric'][topic].append(str(keyword))
-                        # Break to avoid adding to multiple categories
+                            topic_map[topic].append(keyword_str)
+                        # Break to avoid adding to multiple general categories
                         break
 
         # Deduplicate keywords
