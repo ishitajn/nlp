@@ -1,4 +1,5 @@
 import re
+import torch
 from collections import defaultdict
 from sentence_transformers import util
 from dating_nlp_bot.model_loader import get_models
@@ -68,8 +69,12 @@ def classify_topics_enhanced(conversation_history: list[dict]) -> dict:
         return {"liked": [], "disliked": [], "neutral": [], "sensitive": [], "map": {}}
 
     # Generate embeddings for the conversation and candidate topics
-    conversation_embedding = embedding_model.encode(full_text, convert_to_tensor=True)
-    topic_embeddings = embedding_model.encode(ENHANCED_TOPIC_CANDIDATE_LABELS, convert_to_tensor=True)
+    conversation_embedding_list = embedding_model.get_embeddings([full_text])
+    topic_embeddings_list = embedding_model.get_embeddings(ENHANCED_TOPIC_CANDIDATE_LABELS)
+
+    # Convert lists to tensors for cosine similarity calculation
+    conversation_embedding = torch.tensor(conversation_embedding_list)
+    topic_embeddings = torch.tensor(topic_embeddings_list)
 
     # Compute cosine similarities
     cosine_scores = util.cos_sim(conversation_embedding, topic_embeddings)
