@@ -5,7 +5,6 @@ from dating_nlp_bot.analyzers import (
     geo_time_analyzer,
     response_analysis,
     brain_analyzer,
-    prompt_generator,
 )
 from dating_nlp_bot.recommender import topic_suggester, action_recommender
 
@@ -26,8 +25,7 @@ def run_fast_pipeline(payload: dict) -> dict:
     analysis_results["suggested_topics"] = suggested_topics
     recommended_actions = action_recommender.recommend_actions_fast(analysis_results)
     conversation_brain = brain_analyzer.analyze_brain_fast(analysis_results)
-    llm_prompt_context = prompt_generator.generate_prompt_context(analysis_results)
-    return {"sentiment": sentiment, "topics": topics, "suggested_topics": suggested_topics, "conversation_dynamics": dynamics, "geoContext": geo_context, "response_analysis": response, "recommended_actions": recommended_actions, "conversation_brain": conversation_brain, **llm_prompt_context}
+    return {"sentiment": sentiment, "topics": topics, "suggested_topics": suggested_topics, "conversation_dynamics": dynamics, "geoContext": geo_context, "response_analysis": response, "recommended_actions": recommended_actions, "conversation_brain": conversation_brain}
 
 def run_enhanced_pipeline(payload: dict) -> dict:
     scraped_data = payload.get("scraped_data", {})
@@ -46,8 +44,7 @@ def run_enhanced_pipeline(payload: dict) -> dict:
     analysis_results["suggested_topics"] = suggested_topics
     recommended_actions = action_recommender.recommend_actions_fast(analysis_results)
     conversation_brain = brain_analyzer.analyze_brain_enhanced(conversation_history, analysis_results)
-    llm_prompt_context = prompt_generator.generate_prompt_context(analysis_results)
-    return {"sentiment": sentiment, "topics": topics, "suggested_topics": suggested_topics, "conversation_dynamics": dynamics, "geoContext": geo_context, "response_analysis": response, "recommended_actions": recommended_actions, "conversation_brain": conversation_brain, **llm_prompt_context}
+    return {"sentiment": sentiment, "topics": topics, "suggested_topics": suggested_topics, "conversation_dynamics": dynamics, "geoContext": geo_context, "response_analysis": response, "recommended_actions": recommended_actions, "conversation_brain": conversation_brain}
 
 def process_payload(payload: dict) -> dict:
     use_enhanced = payload.get("ui_settings", {}).get("useEnhancedNlp", False)

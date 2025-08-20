@@ -121,11 +121,6 @@ class ConversationBrainOutput(BaseModel):
     predictive_actions: PredictiveActions
     memory_layer: MemoryLayer
 
-class LLMPromptContext(BaseModel):
-    conversation_summary: str
-    user_persona_summary: str
-    match_persona_summary: str
-
 class AnalysisOutput(BaseModel):
     sentiment: SentimentOutput
     topics: TopicsOutput
@@ -135,4 +130,3 @@ class AnalysisOutput(BaseModel):
     response_analysis: ResponseAnalysisOutput
     recommended_actions: RecommendedActionsOutput
     conversation_brain: ConversationBrainOutput
-    llm_prompt_context: LLMPromptContext
