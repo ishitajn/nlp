@@ -80,10 +80,10 @@ def analyze_brain_enhanced(conversation_history: list[dict], analysis: dict) -> 
         f"Their Profile: '{their_profile}'\n"
         f"Recent Conversation:\n{formatted_history}\n\n"
         f"Main Topics: {', '.join(topics)}\n\n"
-        f"Generate a response in the following format exactly:\n"
-        f"Suggested Questions:\n- Question 1\n- Question 2\n- Question 3\n\n"
-        f"Goal Tracking:\n- Goal 1\n- Goal 2\n\n"
-        f"Topic Switch Suggestions:\n- Suggestion 1\n- Suggestion 2\n"
+        f"Based on the context, generate a response with the following headers. Under each header, provide a bulleted list of items as requested:\n\n"
+        f"Suggested Questions: (provide a list of 3 creative questions to ask next)\n"
+        f"Goal Tracking: (provide a list of 2 potential conversational goals)\n"
+        f"Topic Switch Suggestions: (provide a list of 2 new topics to steer the conversation towards)\n"
     )
 
     try:
@@ -98,13 +98,13 @@ def analyze_brain_enhanced(conversation_history: list[dict], analysis: dict) -> 
             section = section.strip()
             if section.startswith("Suggested Questions:"):
                 lines = section.replace("Suggested Questions:", "").strip().split('\n')
-                parsed_output['questions'] = [line.strip().lstrip('- ') for line in lines if line.strip() and not line.strip().startswith("Question")]
+                parsed_output['questions'] = [line.strip().lstrip('- ') for line in lines if line.strip()]
             elif section.startswith("Goal Tracking:"):
                 lines = section.replace("Goal Tracking:", "").strip().split('\n')
-                parsed_output['goals'] = [line.strip().lstrip('- ') for line in lines if line.strip() and not line.strip().startswith("Goal")]
+                parsed_output['goals'] = [line.strip().lstrip('- ') for line in lines if line.strip()]
             elif section.startswith("Topic Switch Suggestions:"):
                 lines = section.replace("Topic Switch Suggestions:", "").strip().split('\n')
-                parsed_output['switches'] = [line.strip().lstrip('- ') for line in lines if line.strip() and not line.strip().startswith("Suggestion")]
+                parsed_output['switches'] = [line.strip().lstrip('- ') for line in lines if line.strip()]
 
         suggested_questions = parsed_output.get('questions', [])
         goal_tracking = parsed_output.get('goals', [])
