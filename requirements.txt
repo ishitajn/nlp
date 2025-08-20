@@ -6,6 +6,7 @@
 torch
 sentence-transformers
 transformers
+sentencepiece
 ctransformers==0.2.27
 
 -r requirements.lock

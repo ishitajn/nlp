@@ -83,9 +83,8 @@ def analyze_brain_enhanced(conversation_history: list[dict], analysis: dict) -> 
     def generate_suggestions(prompt, max_tokens=50):
         try:
             full_prompt = base_prompt_context + prompt
-            generated_text = text_generator(full_prompt, max_new_tokens=max_tokens, num_return_sequences=1)[0]['generated_text']
-            # Clean up the output
-            suggestions_text = generated_text.replace(full_prompt, "").strip()
+            # The 'text2text-generation' pipeline output is just the generated text
+            suggestions_text = text_generator(full_prompt, max_new_tokens=max_tokens, num_return_sequences=1)[0]['generated_text']
             # Split into lines and remove any leading hyphens/bullets
             return [line.strip().lstrip('-* ') for line in suggestions_text.split('\n') if line.strip()]
         except Exception:

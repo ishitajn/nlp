@@ -35,7 +35,7 @@ class ModelLoader:
 
             try:
                 logger.info("Loading text generation model for brain analysis...")
-                self.text_generator_enhanced = pipeline("text-generation", model="distilgpt2")
+                self.text_generator_enhanced = pipeline("text2text-generation", model="google/flan-t5-small")
                 logger.info("Text generation model loaded.")
             except Exception as e:
                 logger.error(f"Failed to load text generation model: {e}")
