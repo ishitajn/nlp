@@ -72,7 +72,7 @@ def analyze_brain_enhanced(conversation_history: list[dict], analysis: dict) -> 
     )
 
     try:
-        generated_text = text_generator(prompt, max_length=250, num_return_sequences=1)[0]['generated_text']
+        generated_text = text_generator(prompt, max_new_tokens=250, num_return_sequences=1)[0]['generated_text']
 
         # Basic parsing of the generated text
         questions = re.findall(r"Suggested Questions:\n(.*?)\n\n", generated_text, re.DOTALL)

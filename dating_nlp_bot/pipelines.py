@@ -1,3 +1,6 @@
+import shelve
+import hashlib
+import json
 from dating_nlp_bot.analyzers import (
     sentiment_analyzer,
     topic_classifier,
@@ -7,6 +10,8 @@ from dating_nlp_bot.analyzers import (
     brain_analyzer,
 )
 from dating_nlp_bot.recommender import topic_suggester, action_recommender
+
+CACHE_DB = "analysis_cache.db"
 
 def run_fast_pipeline(payload: dict) -> dict:
     scraped_data = payload.get("scraped_data", {})
@@ -47,8 +52,31 @@ def run_enhanced_pipeline(payload: dict) -> dict:
     return {"sentiment": sentiment, "topics": topics, "suggested_topics": suggested_topics, "conversation_dynamics": dynamics, "geoContext": geo_context, "response_analysis": response, "recommended_actions": recommended_actions, "conversation_brain": conversation_brain}
 
 def process_payload(payload: dict) -> dict:
-    use_enhanced = payload.get("ui_settings", {}).get("useEnhancedNlp", False)
-    if use_enhanced:
-        return run_enhanced_pipeline(payload)
-    else:
-        return run_fast_pipeline(payload)
+    match_id = payload.get("matchId")
+    conversation_history = payload.get("scraped_data", {}).get("conversationHistory", [])
+
+    if not match_id or not conversation_history:
+        # Cannot cache without matchId or history, so run pipeline directly
+        use_enhanced = payload.get("ui_settings", {}).get("useEnhancedNlp", False)
+        if use_enhanced:
+            return run_enhanced_pipeline(payload)
+        else:
+            return run_fast_pipeline(payload)
+
+    # Create a hash of the conversation history to detect changes
+    history_str = json.dumps(conversation_history, sort_keys=True)
+    history_hash = hashlib.sha256(history_str.encode()).hexdigest()
+    cache_key = f"{match_id}_{history_hash}"
+
+    with shelve.open(CACHE_DB) as cache:
+        if cache_key in cache:
+            return cache[cache_key]
+
+        use_enhanced = payload.get("ui_settings", {}).get("useEnhancedNlp", False)
+        if use_enhanced:
+            result = run_enhanced_pipeline(payload)
+        else:
+            result = run_fast_pipeline(payload)
+
+        cache[cache_key] = result
+        return result
