@@ -85,10 +85,15 @@ def process_payload(payload: dict) -> dict:
         else:
             return run_fast_pipeline(payload)
 
-    # Create a hash of the conversation history to detect changes
+    # Create a hash of the conversation history and profiles to detect changes
+    my_profile = payload.get("ui_settings", {}).get("myProfile", "")
+    their_profile = payload.get("scraped_data", {}).get("theirProfile", "")
+
     history_str = json.dumps(conversation_history, sort_keys=True)
-    history_hash = hashlib.sha256(history_str.encode()).hexdigest()
-    cache_key = f"{match_id}_{history_hash}"
+
+    combined_data = f"{history_str}{my_profile}{their_profile}"
+    data_hash = hashlib.sha256(combined_data.encode()).hexdigest()
+    cache_key = f"{match_id}_{data_hash}"
 
     with shelve.open(CACHE_DB) as cache:
         if cache_key in cache:

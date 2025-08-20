@@ -8,6 +8,7 @@ from dating_nlp_bot.config import (
     GENERAL_TOPICS,
     FEMALE_CENTRIC_TOPICS,
     ENHANCED_TOPIC_CANDIDATE_LABELS,
+    TOPIC_CONFIDENCE_THRESHOLD,
 )
 
 models = get_models()
@@ -77,7 +78,7 @@ def classify_topics_enhanced(conversation_history: list[dict]) -> dict:
     identified_topics = []
     if results:
         for topic, score in zip(results['labels'], results['scores']):
-            if score > 0.5:  # Confidence threshold
+            if score > TOPIC_CONFIDENCE_THRESHOLD:
                 identified_topics.append(topic)
                 topic_map[topic] = [] # No keywords to add for now
                 if topic in sensitive_topics:
@@ -89,11 +90,12 @@ def classify_topics_enhanced(conversation_history: list[dict]) -> dict:
 
     # Correlate topics with sentiment from messages
     for message in conversation_history:
-        text = message.get("content", "")
+        text = message.get("content", "").lower()
         vs = sentiment_analyzer.polarity_scores(text)
         sentiment_score = vs['compound']
         for topic in identified_topics:
-            if re.search(r'\b' + re.escape(topic.split(" ")[0]) + r'\b', text, re.IGNORECASE):
+            # Match full topic phrase
+            if re.search(r'\b' + re.escape(topic) + r'\b', text, re.IGNORECASE):
                 topic_sentiments[topic].append(sentiment_score)
 
     liked, disliked, neutral = [], [], []
