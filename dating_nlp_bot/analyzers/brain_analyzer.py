@@ -59,62 +59,42 @@ def analyze_brain_fast(analysis: dict) -> dict:
 def analyze_brain_enhanced(conversation_history: list[dict], analysis: dict) -> dict:
     """
     Generates the conversation brain output using a text generation model (enhanced mode).
+    This version uses multiple focused prompts for more reliable results.
     """
     text_generator = models.text_generator_enhanced
     if not text_generator:
         return analyze_brain_fast(analysis)
 
-    # Prepare the context for the model
+    # Prepare the shared context for the prompts
     topics = analysis.get("topics", {}).get("neutral", [])
     scraped_data = analysis.get("scraped_data", {})
     my_profile = scraped_data.get("myProfile", "")
     their_profile = scraped_data.get("theirProfile", "")
-
-    # Format last 10 messages for context
     last_messages = conversation_history[-10:]
     formatted_history = "\n".join([f"{msg['role']}: {msg['content']}" for msg in last_messages])
 
-    prompt = (
-        f"Analyze the following dating conversation and provide actionable advice.\n\n"
+    base_prompt_context = (
+        f"You are an AI assistant analyzing a dating conversation.\n"
         f"My Profile: '{my_profile}'\n"
         f"Their Profile: '{their_profile}'\n"
         f"Recent Conversation:\n{formatted_history}\n\n"
-        f"Main Topics: {', '.join(topics)}\n\n"
-        f"Based on the context, generate a response with the following headers. Under each header, provide a bulleted list of items as requested:\n\n"
-        f"Suggested Questions: (provide a list of 3 creative questions to ask next)\n"
-        f"Goal Tracking: (provide a list of 2 potential conversational goals)\n"
-        f"Topic Switch Suggestions: (provide a list of 2 new topics to steer the conversation towards)\n"
     )
 
-    try:
-        generated_text = text_generator(prompt, max_new_tokens=250, num_return_sequences=1)[0]['generated_text']
+    def generate_suggestions(prompt, max_tokens=50):
+        try:
+            full_prompt = base_prompt_context + prompt
+            generated_text = text_generator(full_prompt, max_new_tokens=max_tokens, num_return_sequences=1)[0]['generated_text']
+            # Clean up the output
+            suggestions_text = generated_text.replace(full_prompt, "").strip()
+            # Split into lines and remove any leading hyphens/bullets
+            return [line.strip().lstrip('-* ') for line in suggestions_text.split('\n') if line.strip()]
+        except Exception:
+            return []
 
-        # More robust parsing logic
-        parsed_output = {}
-        # Split the text by the known headers
-        sections = re.split(r'\n(?=Suggested Questions:|Goal Tracking:|Topic Switch Suggestions:)', generated_text)
-
-        for section in sections:
-            section = section.strip()
-            if section.startswith("Suggested Questions:"):
-                lines = section.replace("Suggested Questions:", "").strip().split('\n')
-                parsed_output['questions'] = [line.strip().lstrip('- ') for line in lines if line.strip()]
-            elif section.startswith("Goal Tracking:"):
-                lines = section.replace("Goal Tracking:", "").strip().split('\n')
-                parsed_output['goals'] = [line.strip().lstrip('- ') for line in lines if line.strip()]
-            elif section.startswith("Topic Switch Suggestions:"):
-                lines = section.replace("Topic Switch Suggestions:", "").strip().split('\n')
-                parsed_output['switches'] = [line.strip().lstrip('- ') for line in lines if line.strip()]
-
-        suggested_questions = parsed_output.get('questions', [])
-        goal_tracking = parsed_output.get('goals', [])
-        topic_switch_suggestions = parsed_output.get('switches', [])
-
-    except Exception as e:
-        # If model or parsing fails, return empty lists
-        suggested_questions = []
-        goal_tracking = []
-        topic_switch_suggestions = []
+    # Generate each section with a focused prompt
+    suggested_questions = generate_suggestions("Based on the conversation, list exactly 3 creative questions to ask next:", max_tokens=60)
+    goal_tracking = generate_suggestions("Based on the context, list exactly 2 potential conversational goals:", max_tokens=40)
+    topic_switch_suggestions = generate_suggestions("Based on the context, list exactly 2 new topics to steer the conversation towards:", max_tokens=40)
 
     # Memory Layer (from fast analysis)
     fast_brain = analyze_brain_fast(analysis)
