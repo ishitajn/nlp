@@ -59,31 +59,55 @@ def classify_topics_fast(conversation_history: list[dict]) -> dict:
 
 def classify_topics_enhanced(conversation_history: list[dict]) -> dict:
     """
-    Classifies topics using keyword matching and VADER sentiment analysis (enhanced mode).
+    Classifies topics using a zero-shot classification model and VADER sentiment analysis.
+    This approach is more accurate and doesn't rely on hardcoded keywords.
+    The user's request mentioned sentence-transformers, and this zero-shot model is a powerful
+    application of transformer technology for classification without needing a pre-trained model
+    on specific topics.
     """
-    fast_results = classify_topics_fast(conversation_history)
-    topic_map = fast_results["map"]
-    analyzer = models.sentiment_analyzer_fast
-    if not analyzer:
-        return fast_results
+    classifier = models.topic_classifier_enhanced
+    sentiment_analyzer = models.sentiment_analyzer_fast
+    if not classifier or not sentiment_analyzer:
+        return classify_topics_fast(conversation_history)
 
+    full_text = " ".join([message.get("content", "") for message in conversation_history])
+    if not full_text:
+        return {"liked": [], "disliked": [], "neutral": [], "sensitive": [], "map": {}}
+
+    candidate_labels = [
+        "travel", "food", "sports", "career", "fashion", "wellness",
+        "hobbies", "social", "relationships", "emotions", "flirting",
+        "sexual topics", "kinks and fetishes", "pornography"
+    ]
+
+    results = classifier(full_text, candidate_labels, multi_label=True)
+
+    topic_map = defaultdict(list)
+    sensitive_topics = ["flirting", "sexual topics", "kinks and fetishes", "pornography"]
+    sensitive = []
     topic_sentiments = defaultdict(list)
-    for message in conversation_history:
-        text = message.get("content", "")
-        vs = analyzer.polarity_scores(text)
-        sentiment_score = vs['compound']
 
-        for topic, keywords in TOPIC_KEYWORDS.items():
-            if any(re.search(r'\b' + kw + r'\b', text.lower()) for kw in keywords):
+    identified_topics = []
+    if results:
+        for topic, score in zip(results['labels'], results['scores']):
+            if score > 0.5:  # Confidence threshold
+                identified_topics.append(topic)
+                topic_map[topic].append(f"score: {score:.2f}")
+                if topic in sensitive_topics:
+                    sensitive.append(topic)
+
+    # Correlate topics with sentiment from messages
+    for topic in identified_topics:
+        for message in conversation_history:
+            text = message.get("content", "")
+            if re.search(r'\b' + re.escape(topic.split(" ")[0]) + r'\b', text, re.IGNORECASE):
+                vs = sentiment_analyzer.polarity_scores(text)
+                sentiment_score = vs['compound']
                 topic_sentiments[topic].append(sentiment_score)
 
     liked, disliked, neutral = [], [], []
-    all_topics = list(topic_map.keys())
-    if 'female_centric' in topic_map and isinstance(topic_map['female_centric'], dict):
-        all_topics.extend(topic_map['female_centric'].keys())
-
-    for topic in all_topics:
-        if topic in topic_sentiments:
+    for topic in identified_topics:
+        if topic in topic_sentiments and topic_sentiments[topic]:
             avg_sentiment = sum(topic_sentiments[topic]) / len(topic_sentiments[topic])
             if avg_sentiment > TOPIC_SENTIMENT_THRESHOLD_POSITIVE:
                 liked.append(topic)
@@ -94,8 +118,12 @@ def classify_topics_enhanced(conversation_history: list[dict]) -> dict:
         else:
             neutral.append(topic)
 
-    fast_results["liked"] = list(set(liked))
-    fast_results["disliked"] = list(set(disliked))
-    fast_results["neutral"] = list(set(neutral))
-
-    return fast_results
+    return {
+        "liked": list(set(liked)),
+        "disliked": list(set(disliked)),
+        "neutral": list(set(neutral)),
+        "sensitive": list(set(sensitive)),
+        "kinksAndFetishes": topic_map.get("kinks and fetishes", []),
+        "pornReferences": topic_map.get("pornography", []),
+        "map": dict(topic_map),
+    }
