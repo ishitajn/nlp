@@ -7,6 +7,7 @@ from dating_nlp_bot.config import (
     TOPIC_SENTIMENT_THRESHOLD_NEGATIVE,
     GENERAL_TOPICS,
     FEMALE_CENTRIC_TOPICS,
+    ENHANCED_TOPIC_CANDIDATE_LABELS,
 )
 
 models = get_models()
@@ -61,9 +62,6 @@ def classify_topics_enhanced(conversation_history: list[dict]) -> dict:
     """
     Classifies topics using a zero-shot classification model and VADER sentiment analysis.
     This approach is more accurate and doesn't rely on hardcoded keywords.
-    The user's request mentioned sentence-transformers, and this zero-shot model is a powerful
-    application of transformer technology for classification without needing a pre-trained model
-    on specific topics.
     """
     classifier = models.topic_classifier_enhanced
     sentiment_analyzer = models.sentiment_analyzer_fast
@@ -74,17 +72,13 @@ def classify_topics_enhanced(conversation_history: list[dict]) -> dict:
     if not full_text:
         return {"liked": [], "disliked": [], "neutral": [], "sensitive": [], "map": {}}
 
-    candidate_labels = [
-        "travel", "food", "sports", "career", "fashion", "wellness",
-        "hobbies", "social", "relationships", "emotions", "flirting",
-        "sexual topics", "kinks and fetishes", "pornography"
-    ]
-
-    results = classifier(full_text, candidate_labels, multi_label=True)
+    results = classifier(full_text, ENHANCED_TOPIC_CANDIDATE_LABELS, multi_label=True)
 
     topic_map = defaultdict(list)
     sensitive_topics = ["flirting", "sexual topics", "kinks and fetishes", "pornography"]
     sensitive = []
+    kinks_and_fetishes = []
+    porn_references = []
     topic_sentiments = defaultdict(list)
 
     identified_topics = []
@@ -92,17 +86,21 @@ def classify_topics_enhanced(conversation_history: list[dict]) -> dict:
         for topic, score in zip(results['labels'], results['scores']):
             if score > 0.5:  # Confidence threshold
                 identified_topics.append(topic)
-                topic_map[topic].append(f"score: {score:.2f}")
+                topic_map[topic] = [] # No keywords to add for now
                 if topic in sensitive_topics:
                     sensitive.append(topic)
+                if topic == "kinks and fetishes":
+                    kinks_and_fetishes.append(topic)
+                if topic == "pornography":
+                    porn_references.append(topic)
 
     # Correlate topics with sentiment from messages
-    for topic in identified_topics:
-        for message in conversation_history:
-            text = message.get("content", "")
+    for message in conversation_history:
+        text = message.get("content", "")
+        vs = sentiment_analyzer.polarity_scores(text)
+        sentiment_score = vs['compound']
+        for topic in identified_topics:
             if re.search(r'\b' + re.escape(topic.split(" ")[0]) + r'\b', text, re.IGNORECASE):
-                vs = sentiment_analyzer.polarity_scores(text)
-                sentiment_score = vs['compound']
                 topic_sentiments[topic].append(sentiment_score)
 
     liked, disliked, neutral = [], [], []
@@ -123,7 +121,7 @@ def classify_topics_enhanced(conversation_history: list[dict]) -> dict:
         "disliked": list(set(disliked)),
         "neutral": list(set(neutral)),
         "sensitive": list(set(sensitive)),
-        "kinksAndFetishes": topic_map.get("kinks and fetishes", []),
-        "pornReferences": topic_map.get("pornography", []),
+        "kinksAndFetishes": list(set(kinks_and_fetishes)),
+        "pornReferences": list(set(porn_references)),
         "map": dict(topic_map),
     }

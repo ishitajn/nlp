@@ -27,7 +27,7 @@ class ModelLoader:
         if pipeline:
             try:
                 logger.info("Loading zero-shot classification model for topic analysis...")
-                self.topic_classifier_enhanced = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+                self.topic_classifier_enhanced = pipeline("zero-shot-classification", model="Moritz/distilbert-base-uncased-finetuned-mnli")
                 logger.info("Zero-shot classification model loaded.")
             except Exception as e:
                 logger.error(f"Failed to load zero-shot classification model: {e}")

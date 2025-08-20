@@ -15,3 +15,8 @@ TOPIC_SENTIMENT_THRESHOLD_POSITIVE = 0.2
 TOPIC_SENTIMENT_THRESHOLD_NEGATIVE = -0.2
 GENERAL_TOPICS = ["travel", "food", "sports", "career", "flirt", "sexual", "emotions"]
 FEMALE_CENTRIC_TOPICS = ["fashion", "wellness", "hobbies", "social", "relationships"]
+ENHANCED_TOPIC_CANDIDATE_LABELS = [
+    "travel", "food", "sports", "career", "fashion", "wellness",
+    "hobbies", "social", "relationships", "emotions", "flirting",
+    "sexual topics", "kinks and fetishes", "pornography"
+]

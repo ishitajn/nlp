@@ -31,21 +31,7 @@ class AnalysisPayload(BaseModel):
 class SentimentOutput(BaseModel):
     overall: str
 
-class FemaleCentricTopics(BaseModel):
-    fashion: List[str] = []
-    wellness: List[str] = []
-    hobbies: List[str] = []
-    social: List[str] = []
-    relationships: List[str] = []
-
-class TopicsMap(BaseModel):
-    travel: List[str] = []
-    food: List[str] = []
-    flirt: List[str] = []
-    sexual: List[str] = []
-    sports: List[str] = []
-    career: List[str] = []
-    female_centric: FemaleCentricTopics = Field(default_factory=FemaleCentricTopics)
+from typing import Dict
 
 class TopicsOutput(BaseModel):
     liked: List[str]
@@ -54,7 +40,7 @@ class TopicsOutput(BaseModel):
     sensitive: List[str]
     kinksAndFetishes: List[str]
     pornReferences: List[str]
-    map: TopicsMap
+    map: Dict[str, List[str]]
 
 class SuggestedTopicsOutput(BaseModel):
     next_topic: Optional[str]
