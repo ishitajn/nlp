@@ -1,4 +1,5 @@
 import re
+import json
 from dating_nlp_bot.model_loader import get_models
 from dating_nlp_bot.utils.suggestions import SUGGESTED_QUESTIONS
 
@@ -58,51 +59,76 @@ def analyze_brain_fast(analysis: dict) -> dict:
 
 def analyze_brain_enhanced(conversation_history: list[dict], analysis: dict) -> dict:
     """
-    Generates the conversation brain output using a text generation model (enhanced mode).
-    This version uses multiple focused prompts for more reliable results.
+    Generates the conversation brain output by prompting a small LLM for a structured JSON object.
     """
-    text_generator = models.text_generator_enhanced
-    if not text_generator:
+    llm = models.text_generator_enhanced
+    if not llm:
         return analyze_brain_fast(analysis)
 
-    # Prepare the shared context for the prompts
+    # Prepare the context
     topics = analysis.get("topics", {}).get("neutral", [])
     scraped_data = analysis.get("scraped_data", {})
     my_profile = scraped_data.get("myProfile", "")
     their_profile = scraped_data.get("theirProfile", "")
     last_messages = conversation_history[-10:]
-    formatted_history = "\n".join([f"{msg['role']}: {msg['content']}" for msg in last_messages])
+    formatted_history = "\n".join([f"<{msg['role']}>: {msg['content']}" for msg in last_messages])
 
-    base_prompt_context = (
-        f"You are an AI assistant analyzing a dating conversation.\n"
-        f"My Profile: '{my_profile}'\n"
-        f"Their Profile: '{their_profile}'\n"
-        f"Recent Conversation:\n{formatted_history}\n\n"
+    json_schema = """
+{
+  "suggested_questions": ["question 1", "question 2", "question 3"],
+  "goal_tracking": ["goal 1", "goal 2"],
+  "topic_switch_suggestions": ["topic 1", "topic 2"]
+}
+"""
+
+    prompt = (
+        f"<|system|>\n"
+        f"You are a helpful dating assistant. Your task is to analyze a dating conversation and provide actionable advice. "
+        f"Based on the user's profile, the match's profile, and the recent conversation history, generate a JSON object with three keys: "
+        f"'suggested_questions' (a list of 3 creative questions to ask next), "
+        f"'goal_tracking' (a list of 2 potential conversational goals), and "
+        f"'topic_switch_suggestions' (a list of 2 new topics to steer the conversation towards). "
+        f"The user's role is 'user', and the match's role is 'assistant'. "
+        f"Ensure your output is a single, valid JSON object and nothing else. Do not include any text before or after the JSON object. Adhere to this JSON schema: {json_schema}\n"
+        f"<|user|>\n"
+        f"My Profile: {my_profile}\n"
+        f"Their Profile: {their_profile}\n"
+        f"Conversation History:\n{formatted_history}\n"
+        f"<|assistant|>\n"
     )
 
-    def generate_suggestions(prompt, max_tokens=50):
-        try:
-            full_prompt = base_prompt_context + prompt
-            # The 'text2text-generation' pipeline output is just the generated text
-            suggestions_text = text_generator(full_prompt, max_new_tokens=max_tokens, num_return_sequences=1)[0]['generated_text']
-            # Split into lines and remove any leading hyphens/bullets
-            return [line.strip().lstrip('-* ') for line in suggestions_text.split('\n') if line.strip()]
-        except Exception:
-            return []
+    predictive_actions = {
+        "suggested_questions": [],
+        "goal_tracking": [],
+        "topic_switch_suggestions": []
+    }
 
-    # Generate each section with a focused prompt
-    suggested_questions = generate_suggestions("Based on the conversation, list exactly 3 creative questions to ask next:", max_tokens=60)
-    goal_tracking = generate_suggestions("Based on the context, list exactly 2 potential conversational goals:", max_tokens=40)
-    topic_switch_suggestions = generate_suggestions("Based on the context, list exactly 2 new topics to steer the conversation towards:", max_tokens=40)
+    try:
+        # Generate text from the LLM
+        llm_output = llm(prompt, max_new_tokens=256)
+
+        # Extract JSON from the output string
+        # Models sometimes wrap JSON in markdown backticks
+        json_match = re.search(r'```json\n(.*)\n```', llm_output, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            # Or it might just be the JSON object itself
+            json_str = llm_output[llm_output.find('{'):llm_output.rfind('}')+1]
+
+        parsed_json = json.loads(json_str)
+
+        # Populate predictive_actions from the parsed JSON
+        predictive_actions["suggested_questions"] = parsed_json.get("suggested_questions", [])
+        predictive_actions["goal_tracking"] = parsed_json.get("goal_tracking", [])
+        predictive_actions["topic_switch_suggestions"] = parsed_json.get("topic_switch_suggestions", [])
+
+    except (json.JSONDecodeError, AttributeError, IndexError, TypeError) as e:
+        # If model output is not valid JSON or parsing fails, predictive_actions will remain empty
+        print(f"Error parsing LLM output for brain analyzer: {e}")
 
     # Memory Layer (from fast analysis)
     fast_brain = analyze_brain_fast(analysis)
     memory_layer = fast_brain.get("memory_layer", {})
-
-    predictive_actions = {
-        "suggested_questions": suggested_questions,
-        "goal_tracking": goal_tracking,
-        "topic_switch_suggestions": topic_switch_suggestions
-    }
 
     return {"predictive_actions": predictive_actions, "memory_layer": memory_layer}

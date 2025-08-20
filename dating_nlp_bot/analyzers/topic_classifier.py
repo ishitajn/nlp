@@ -1,5 +1,6 @@
 import re
 from collections import defaultdict
+from sentence_transformers import util
 from dating_nlp_bot.model_loader import get_models
 from dating_nlp_bot.utils.keywords import TOPIC_KEYWORDS
 from dating_nlp_bot.config import (
@@ -54,19 +55,24 @@ def classify_topics_fast(conversation_history: list[dict]) -> dict:
 
 def classify_topics_enhanced(conversation_history: list[dict]) -> dict:
     """
-    Classifies topics using a zero-shot classification model and VADER sentiment analysis.
-    This approach is more accurate and doesn't rely on hardcoded keywords.
+    Classifies topics using sentence embeddings and cosine similarity.
+    This approach provides more accurate semantic topic matching.
     """
-    classifier = models.topic_classifier_enhanced
+    embedding_model = models.embedding_model
     sentiment_analyzer = models.sentiment_analyzer_fast
-    if not classifier or not sentiment_analyzer:
+    if not embedding_model or not sentiment_analyzer:
         return classify_topics_fast(conversation_history)
 
     full_text = " ".join([message.get("content", "") for message in conversation_history])
     if not full_text:
         return {"liked": [], "disliked": [], "neutral": [], "sensitive": [], "map": {}}
 
-    results = classifier(full_text, ENHANCED_TOPIC_CANDIDATE_LABELS, multi_label=True)
+    # Generate embeddings for the conversation and candidate topics
+    conversation_embedding = embedding_model.encode(full_text, convert_to_tensor=True)
+    topic_embeddings = embedding_model.encode(ENHANCED_TOPIC_CANDIDATE_LABELS, convert_to_tensor=True)
+
+    # Compute cosine similarities
+    cosine_scores = util.cos_sim(conversation_embedding, topic_embeddings)
 
     topic_map = defaultdict(list)
     sensitive_topics = ["flirting", "sexual topics", "kinks and fetishes", "pornography"]
@@ -74,19 +80,18 @@ def classify_topics_enhanced(conversation_history: list[dict]) -> dict:
     kinks_and_fetishes = []
     porn_references = []
     topic_sentiments = defaultdict(list)
-
     identified_topics = []
-    if results:
-        for topic, score in zip(results['labels'], results['scores']):
-            if score > TOPIC_CONFIDENCE_THRESHOLD:
-                identified_topics.append(topic)
-                topic_map[topic] = [] # No keywords to add for now
-                if topic in sensitive_topics:
-                    sensitive.append(topic)
-                if topic == "kinks and fetishes":
-                    kinks_and_fetishes.append(topic)
-                if topic == "pornography":
-                    porn_references.append(topic)
+
+    for i, topic in enumerate(ENHANCED_TOPIC_CANDIDATE_LABELS):
+        if cosine_scores[0][i] > TOPIC_CONFIDENCE_THRESHOLD:
+            identified_topics.append(topic)
+            topic_map[topic] = []  # No keywords to add for now
+            if topic in sensitive_topics:
+                sensitive.append(topic)
+            if topic == "kinks and fetishes":
+                kinks_and_fetishes.append(topic)
+            if topic == "pornography":
+                porn_references.append(topic)
 
     # Correlate topics with sentiment from messages
     for message in conversation_history:
@@ -94,7 +99,6 @@ def classify_topics_enhanced(conversation_history: list[dict]) -> dict:
         vs = sentiment_analyzer.polarity_scores(text)
         sentiment_score = vs['compound']
         for topic in identified_topics:
-            # Match full topic phrase
             if re.search(r'\b' + re.escape(topic) + r'\b', text, re.IGNORECASE):
                 topic_sentiments[topic].append(sentiment_score)
 
