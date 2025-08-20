@@ -30,7 +30,17 @@ def run_fast_pipeline(payload: dict) -> dict:
     analysis_results["suggested_topics"] = suggested_topics
     recommended_actions = action_recommender.recommend_actions_fast(analysis_results)
     conversation_brain = brain_analyzer.analyze_brain_fast(analysis_results)
-    return {"sentiment": sentiment, "topics": topics, "suggested_topics": suggested_topics, "conversation_dynamics": dynamics, "geoContext": geo_context, "response_analysis": response, "recommended_actions": recommended_actions, "conversation_brain": conversation_brain}
+
+    analysis_info = {
+        "pipeline": "fast",
+        "sentiment_analysis": {"method": "VADER", "model": "N/A"},
+        "topic_classification": {"method": "keyword_matching", "model": "N/A"},
+        "conversation_dynamics": {"method": "rule_based", "model": "N/A"},
+        "response_analysis": {"method": "rule_based", "model": "N/A"},
+        "brain_analysis": {"method": "rule_based", "model": "N/A"}
+    }
+
+    return {"sentiment": sentiment, "topics": topics, "suggested_topics": suggested_topics, "conversation_dynamics": dynamics, "geoContext": geo_context, "response_analysis": response, "recommended_actions": recommended_actions, "conversation_brain": conversation_brain, "analysis_info": analysis_info}
 
 def run_enhanced_pipeline(payload: dict) -> dict:
     scraped_data = payload.get("scraped_data", {})
@@ -49,7 +59,17 @@ def run_enhanced_pipeline(payload: dict) -> dict:
     analysis_results["suggested_topics"] = suggested_topics
     recommended_actions = action_recommender.recommend_actions_fast(analysis_results)
     conversation_brain = brain_analyzer.analyze_brain_enhanced(conversation_history, analysis_results)
-    return {"sentiment": sentiment, "topics": topics, "suggested_topics": suggested_topics, "conversation_dynamics": dynamics, "geoContext": geo_context, "response_analysis": response, "recommended_actions": recommended_actions, "conversation_brain": conversation_brain}
+
+    analysis_info = {
+        "pipeline": "enhanced",
+        "sentiment_analysis": {"method": "VADER", "model": "N/A"},
+        "topic_classification": {"method": "zero-shot-classification", "model": "Moritz/distilbert-base-uncased-finetuned-mnli"},
+        "conversation_dynamics": {"method": "rule_based_with_enhanced_adult_content", "model": "unitary/toxic-bert"},
+        "response_analysis": {"method": "rule_based", "model": "N/A"},
+        "brain_analysis": {"method": "text-generation", "model": "distilgpt2"}
+    }
+
+    return {"sentiment": sentiment, "topics": topics, "suggested_topics": suggested_topics, "conversation_dynamics": dynamics, "geoContext": geo_context, "response_analysis": response, "recommended_actions": recommended_actions, "conversation_brain": conversation_brain, "analysis_info": analysis_info}
 
 def process_payload(payload: dict) -> dict:
     match_id = payload.get("matchId")

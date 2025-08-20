@@ -107,6 +107,18 @@ class ConversationBrainOutput(BaseModel):
     predictive_actions: PredictiveActions
     memory_layer: MemoryLayer
 
+class ModelInfo(BaseModel):
+    method: str
+    model: str
+
+class AnalysisInfo(BaseModel):
+    pipeline: str
+    sentiment_analysis: ModelInfo
+    topic_classification: ModelInfo
+    conversation_dynamics: ModelInfo
+    response_analysis: ModelInfo
+    brain_analysis: ModelInfo
+
 class AnalysisOutput(BaseModel):
     sentiment: SentimentOutput
     topics: TopicsOutput
@@ -116,3 +128,4 @@ class AnalysisOutput(BaseModel):
     response_analysis: ResponseAnalysisOutput
     recommended_actions: RecommendedActionsOutput
     conversation_brain: ConversationBrainOutput
+    analysis_info: AnalysisInfo

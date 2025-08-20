@@ -59,9 +59,14 @@ def analyze_brain_enhanced(conversation_history: list[dict], analysis: dict) -> 
     # Prepare the context for the model
     full_text = " ".join([message.get("content", "") for message in conversation_history])
     topics = analysis.get("topics", {}).get("neutral", [])
+    scraped_data = analysis.get("scraped_data", {})
+    my_profile = scraped_data.get("myProfile", "")
+    their_profile = scraped_data.get("theirProfile", "")
 
     prompt = (
         f"This is an analysis of a dating conversation. "
+        f"My profile: '{my_profile}'. "
+        f"Their profile: '{their_profile}'. "
         f"The conversation so far: '{full_text[-1000:]}' (last 1000 chars). "
         f"The main topics discussed are: {', '.join(topics)}. "
         f"Based on this, generate some brief, actionable advice for the user. "

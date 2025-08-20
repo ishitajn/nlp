@@ -1,33 +1,27 @@
-GENERAL_TOPICS = [
-    "travel", "food", "career", "hobbies", "movies", "music",
-    "books", "pets", "fitness", "family", "goals"
-]
+import random
+from dating_nlp_bot.config import SUGGESTIBLE_TOPICS
 
 def suggest_topics_fast(topics: dict, dynamics: dict) -> dict:
     """
-    Suggests next topics, topics to avoid, and topics to escalate (fast mode).
+    Suggests next topics, topics to avoid, and topics to escalate based on context.
     """
-    discussed_topics = topics.get("map", {}).keys()
+    discussed_topics = set(topics.get("map", {}).keys())
+    liked_topics = set(topics.get("liked", []))
+    disliked_topics = set(topics.get("disliked", []))
 
     # Suggest next topic
-    next_topic = "hobbies" # default
-    for topic in GENERAL_TOPICS:
-        if topic not in discussed_topics:
-            next_topic = topic
-            break
+    undiscovered_topics = [t for t in SUGGESTIBLE_TOPICS if t not in discussed_topics]
+    next_topic = random.choice(undiscovered_topics) if undiscovered_topics else "common interests"
 
     # Suggest topic to avoid
-    avoid_topic = None
-    sensitive_topics = topics.get("sensitive", [])
-    if sensitive_topics:
-        avoid_topic = sensitive_topics[0]
+    avoid_topic = disliked_topics.pop() if disliked_topics else None
 
     # Suggest topic to escalate
     escalate_topic = None
     flirt_level = dynamics.get("flirtation_level")
-    if flirt_level == "medium":
+    if flirt_level == "medium" or "flirt" in liked_topics or "flirting" in liked_topics:
         escalate_topic = "flirtation"
-    elif flirt_level in ["high", "explicit"]:
+    elif flirt_level in ["high", "explicit"] or "sexual" in liked_topics or "sexual topics" in liked_topics:
         escalate_topic = "sexual chemistry"
 
     return {
