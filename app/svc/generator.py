@@ -61,7 +61,7 @@ class SuggestionGenerator:
         if not self.model:
             return self._get_placeholder_suggestions()
 
-        output = self.model(prompt=context_pack, max_tokens=256, temperature=0.7, stop=["\n\n"], echo=False)
+        output = self.model(prompt=context_pack, max_tokens=256, temperature=0.7, echo=False)
         raw_text = output['choices'][0]['text']
         return self._parse_llm_output(raw_text)
 
