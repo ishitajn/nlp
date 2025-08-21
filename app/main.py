@@ -2,37 +2,14 @@ import sys
 import os
 import asyncio
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
-from typing import List, Optional, Literal
 from datetime import datetime
 import numpy as np
+
+from . import schemas
 
 # Add the project root to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# --- Pydantic Models ---
-class ConversationTurn(BaseModel):
-    role: Literal["user", "assistant"]
-    content: str
-    date: str
-
-class ScrapedData(BaseModel):
-    my_name: str = Field(..., alias="myName")
-    their_name: str = Field(..., alias="theirName")
-    their_profile: str = Field(..., alias="theirProfile")
-    their_location_string: str = Field(..., alias="theirLocationString")
-    conversation_history: List[ConversationTurn] = Field(..., alias="conversationHistory")
-
-class UISettings(BaseModel):
-    use_enhanced_nlp: bool = Field(..., alias="useEnhancedNlp")
-    my_location: str = Field(..., alias="myLocation")
-    my_profile: str = Field(..., alias="myProfile")
-    local_model_name: Optional[str] = Field(None, alias="local_model_name")
-
-class AnalyzePayload(BaseModel):
-    match_id: str = Field(..., alias="matchId")
-    scraped_data: ScrapedData
-    ui_settings: UISettings
 
 # --- Import Services ---
 from app.svc import normalizer, planner, probes, topics, reranker, assembler
@@ -48,7 +25,7 @@ app = FastAPI(
 )
 
 # --- Analysis Pipeline (Now Asynchronous) ---
-async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
+async def run_analysis_pipeline(payload: schemas.AnalyzePayload) -> dict:
     """
     The main analysis pipeline, running blocking IO and CPU-bound tasks in a thread pool.
     """
@@ -109,7 +86,7 @@ async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
 
 # --- API Endpoints ---
 @app.post("/analyze")
-async def analyze_conversation_endpoint(payload: AnalyzePayload):
+async def analyze_conversation_endpoint(payload: schemas.AnalyzePayload):
     """
     Analyzes a dating conversation to provide insights and suggestions.
     """
