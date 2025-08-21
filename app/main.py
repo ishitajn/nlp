@@ -65,7 +65,7 @@ def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
     vectors = embedder_service.encode_cached(turn_texts)
 
     # 3. Add to FAISS Index
-    faiss_index_service.ensure_added(cleaned_turns, vectors)
+    faiss_index_service.ensure_added(cleaned_turns, vectors, payload.match_id)
 
     # 4. Evaluate Features & Probes
     features = probes.evaluate_features(cleaned_turns)

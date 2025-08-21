@@ -1,31 +1,52 @@
 from geopy.geocoders import Nominatim
 from geopy.distance import great_circle
-from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
+from geopy.exc import GeocoderTimedOut, GeocoderUnavailable, GeocoderServiceError
 from timezonefinder import TimezoneFinder
 from datetime import datetime
 import pytz
+import logging
 from typing import Dict, Any, Optional
 
+# Set up basic logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 # Initialize services once to be reused
-geolocator = Nominatim(user_agent="dating_conv_analyzer")
+geolocator = Nominatim(user_agent="dating_conv_analyzer", timeout=10)
 tf = TimezoneFinder()
 
 def get_location_details(location_string: str) -> Optional[Dict[str, Any]]:
     """
     Geocodes a location string to get its latitude, longitude, and timezone.
+    Includes robust error handling and logging.
     """
+    if not location_string or not isinstance(location_string, str):
+        return None
+
     try:
         location = geolocator.geocode(location_string)
         if location:
-            timezone_str = tf.timezone_at(lng=location.longitude, lat=location.latitude)
-            return {
-                "latitude": location.latitude,
-                "longitude": location.longitude,
-                "timezone": timezone_str
-            }
-    except (GeocoderTimedOut, GeocoderUnavailable):
-        # In a real app, log this error
+            try:
+                timezone_str = tf.timezone_at(lng=location.longitude, lat=location.latitude)
+                if timezone_str:
+                    return {
+                        "latitude": location.latitude,
+                        "longitude": location.longitude,
+                        "timezone": timezone_str
+                    }
+                else:
+                    logging.warning(f"Could not find timezone for location: {location_string}")
+                    return None
+            except Exception as e:
+                logging.error(f"Error finding timezone for {location_string} at ({location.latitude}, {location.longitude}): {e}")
+                return None
+    except (GeocoderTimedOut, GeocoderUnavailable, GeocoderServiceError) as e:
+        logging.error(f"Geocoding service error for location '{location_string}': {e}")
         return None
+    except Exception as e:
+        logging.error(f"An unexpected error occurred during geocoding for '{location_string}': {e}")
+        return None
+
+    logging.warning(f"Geocoding failed to find a location for: {location_string}")
     return None
 
 def compute_geo_time_features(my_location_str: str, their_location_str: str) -> Dict[str, Any]:
@@ -35,48 +56,47 @@ def compute_geo_time_features(my_location_str: str, their_location_str: str) -> 
     my_details = get_location_details(my_location_str)
     their_details = get_location_details(their_location_str)
 
-    distance_km = None
-    time_difference_hours = None
-    my_time = None
-    their_time = None
-    time_of_day_my_location = "unknown"
-    time_of_day_their_location = "unknown"
+    # Default values
+    geo_features = {
+        "distance_km": None,
+        "time_difference_hours": None,
+        "my_local_time": None,
+        "their_local_time": None,
+        "my_time_of_day": "unknown",
+        "their_time_of_day": "unknown",
+        "country_difference": None
+    }
 
     if my_details and their_details:
-        # Calculate distance
         my_coords = (my_details["latitude"], my_details["longitude"])
         their_coords = (their_details["latitude"], their_details["longitude"])
-        distance_km = great_circle(my_coords, their_coords).kilometers
+        geo_features["distance_km"] = great_circle(my_coords, their_coords).kilometers
 
-        # Calculate time difference
-        if my_details["timezone"] and their_details["timezone"]:
+        # Compare countries based on the last part of the location string
+        my_country = my_location_str.split(',')[-1].strip()
+        their_country = their_location_str.split(',')[-1].strip()
+        geo_features["country_difference"] = my_country != their_country
+
+        if my_details.get("timezone") and their_details.get("timezone"):
             try:
                 now_utc = datetime.utcnow().replace(tzinfo=pytz.utc)
 
                 my_tz = pytz.timezone(my_details["timezone"])
                 my_time_obj = now_utc.astimezone(my_tz)
-                my_time = my_time_obj.strftime('%Y-%m-%d %H:%M:%S')
-                time_of_day_my_location = get_time_of_day(my_time_obj.hour)
+                geo_features["my_local_time"] = my_time_obj.strftime('%Y-%m-%d %H:%M:%S')
+                geo_features["my_time_of_day"] = get_time_of_day(my_time_obj.hour)
 
                 their_tz = pytz.timezone(their_details["timezone"])
                 their_time_obj = now_utc.astimezone(their_tz)
-                their_time = their_time_obj.strftime('%Y-%m-%d %H:%M:%S')
-                time_of_day_their_location = get_time_of_day(their_time_obj.hour)
+                geo_features["their_local_time"] = their_time_obj.strftime('%Y-%m-%d %H:%M:%S')
+                geo_features["their_time_of_day"] = get_time_of_day(their_time_obj.hour)
 
-                time_difference_hours = (my_time_obj.utcoffset().total_seconds() - their_time_obj.utcoffset().total_seconds()) / 3600
-            except pytz.UnknownTimeZoneError:
-                # Handle cases where timezone string is not valid
-                pass
+                time_diff_seconds = my_time_obj.utcoffset().total_seconds() - their_time_obj.utcoffset().total_seconds()
+                geo_features["time_difference_hours"] = time_diff_seconds / 3600
+            except pytz.UnknownTimeZoneError as e:
+                logging.error(f"Unknown timezone error: {e}")
 
-    return {
-        "distance_km": distance_km,
-        "time_difference_hours": time_difference_hours,
-        "my_local_time": my_time,
-        "their_local_time": their_time,
-        "my_time_of_day": time_of_day_my_location,
-        "their_time_of_day": time_of_day_their_location,
-        "country_difference": my_location_str.split(',')[-1].strip() != their_location_str.split(',')[-1].strip() if my_details and their_details else None
-    }
+    return geo_features
 
 def get_time_of_day(hour: int) -> str:
     """Categorizes the hour into a time of day."""

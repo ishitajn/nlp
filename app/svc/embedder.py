@@ -1,65 +1,86 @@
 from sentence_transformers import SentenceTransformer
 import numpy as np
+import sqlite3
+import os
 from typing import List, Dict, Any
 
 class Embedder:
     """
-    A service to generate text embeddings using a sentence transformer model.
-    It includes an in-memory cache to avoid re-computing embeddings for the same text.
+    A service to generate text embeddings with a persistent SQLite cache.
     """
-    def __init__(self, model_name: str = 'BAAI/bge-small-en-v1.5'):
+    def __init__(self, model_name: str = 'BAAI/bge-small-en-v1.5', db_path: str = "app/data/embedding_cache.sqlite"):
         """
-        Initializes the Embedder and loads the sentence transformer model.
-
-        Args:
-            model_name: The name of the model to load from Hugging Face.
+        Initializes the Embedder, loads the model, and sets up the SQLite cache.
         """
-        # In a production system, model loading should be handled carefully.
-        # For instance, the model could be downloaded during the build process
-        # or loaded into memory once when the application starts.
         self.model = SentenceTransformer(model_name)
-        self.cache: Dict[str, np.ndarray] = {}
-        # For a more persistent cache, a database like SQLite could be used, as suggested
-        # in the architecture document.
-        # e.g., self.cache = Cache(db_path='/app/data/embedding_cache.db')
+        self.embedding_dim = self.model.get_sentence_embedding_dimension()
+
+        # Ensure the data directory exists
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        self.db_path = db_path
+
+        # Set up the database connection and create the table if it doesn't exist
+        self._init_db()
+
+    def _init_db(self):
+        """Initializes the database connection and table."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS embeddings (
+                    sentence TEXT PRIMARY KEY,
+                    embedding BLOB
+                )
+            """)
+            conn.commit()
 
     def encode_cached(self, sentences: List[str]) -> np.ndarray:
         """
-        Generates embeddings for a list of sentences, using a cache to retrieve
-        previously computed embeddings.
-
-        Args:
-            sentences: A list of strings to be encoded.
-
-        Returns:
-            A numpy array of shape (n_sentences, embedding_dim) containing the embeddings.
+        Generates embeddings for a list of sentences, using a persistent SQLite
+        cache to retrieve previously computed embeddings.
         """
-        # Find which sentences are not in the cache
-        new_sentences = [s for s in sentences if s not in self.cache]
+        final_embeddings = {}
+        new_sentences_to_encode = []
 
-        if new_sentences:
-            print(f"Encoding {len(new_sentences)} new sentences...")
-            # Generate embeddings for the new sentences
-            # The prompt mentions int8 quantization. For sentence-transformers, this is not
-            # a direct option, but techniques like `model.encode(..., convert_to_tensor=True, normalize_embeddings=True)`
-            # followed by quantization through a library like `optimum` or custom PyTorch code
-            # would be the way to go. For now, we use standard float32 embeddings.
-            new_embeddings = self.model.encode(new_sentences, normalize_embeddings=True)
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            for sentence in sentences:
+                cursor.execute("SELECT embedding FROM embeddings WHERE sentence = ?", (sentence,))
+                result = cursor.fetchone()
+                if result:
+                    # Deserialize the embedding from BLOB to numpy array
+                    final_embeddings[sentence] = np.frombuffer(result[0], dtype=np.float32).reshape(1, -1)
+                else:
+                    if sentence not in new_sentences_to_encode:
+                        new_sentences_to_encode.append(sentence)
 
-            # Add the new embeddings to the cache
-            for sentence, embedding in zip(new_sentences, new_embeddings):
-                self.cache[sentence] = embedding
+        if new_sentences_to_encode:
+            print(f"Encoding {len(new_sentences_to_encode)} new sentences...")
+            new_embeddings = self.model.encode(
+                new_sentences_to_encode,
+                normalize_embeddings=True
+            ).astype(np.float32)
 
-        # Retrieve all embeddings (from cache or newly computed)
-        final_embeddings = [self.cache[s] for s in sentences]
+            # Add the new embeddings to the cache and the final result list
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                for sentence, embedding_array in zip(new_sentences_to_encode, new_embeddings):
+                    # Serialize the numpy array to bytes
+                    embedding_blob = embedding_array.tobytes()
+                    cursor.execute("INSERT INTO embeddings (sentence, embedding) VALUES (?, ?)", (sentence, embedding_blob))
+                    final_embeddings[sentence] = embedding_array.reshape(1, -1)
+                conn.commit()
 
-        return np.array(final_embeddings)
+        # Return the embeddings in the original order
+        ordered_embeddings = [final_embeddings[s] for s in sentences]
 
-# It's good practice to instantiate the service once and reuse it.
-# In a FastAPI app, this can be managed with dependency injection.
-# For now, we can create a global instance.
+        if not ordered_embeddings:
+             return np.array([])
+
+        return np.vstack(ordered_embeddings)
+
+# Global instance
 embedder_service = Embedder()
 
 def get_embedder():
-    """Dependency injection getter for the embedder service."""
     return embedder_service

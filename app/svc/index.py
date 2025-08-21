@@ -1,84 +1,104 @@
 import faiss
 import numpy as np
+import os
+import json
+import hashlib
 from typing import List, Dict, Any, Tuple
 
 class FaissIndex:
     """
-    A wrapper for a FAISS HNSW index to perform efficient similarity searches
-    on conversation embeddings.
+    A wrapper for a persistent, global FAISS HNSW index. The index and its
+    mappings are loaded from disk on startup and saved after modification.
     """
-    def __init__(self, embedding_dim: int = 384):
-        """
-        Initializes the FAISS index.
-
-        Args:
-            embedding_dim: The dimensionality of the vectors to be indexed.
-                           For 'bge-small-en-v1.5', this is 384.
-        """
+    def __init__(self, embedding_dim: int = 384, index_dir: str = "app/index"):
         self.embedding_dim = embedding_dim
-        # Using HNSW (Hierarchical Navigable Small World) for its balance of speed and accuracy.
-        # It's good for production systems where search speed is important.
-        # The index is not memory-mapped as per the prompt, but this can be done
-        # by saving/loading the index to/from disk for persistence across restarts.
-        self.index = faiss.IndexHNSWFlat(self.embedding_dim, 32)  # 32 is the number of neighbors
-        self.index.hnsw.efSearch = 128 # efSearch controls the trade-off between speed and accuracy
+        self.index_path = os.path.join(index_dir, "global.faiss")
+        self.map_path = os.path.join(index_dir, "global_map.json")
+        self.keys_path = os.path.join(index_dir, "added_keys.json")
 
-        # We need a way to map the index's internal IDs back to our conversation turns.
-        self.id_to_turn_map: Dict[int, Dict[str, Any]] = {}
-        self.next_id = 0
+        os.makedirs(index_dir, exist_ok=True)
+        self._load()
 
-    def ensure_added(self, turns: List[Dict[str, Any]], vectors: np.ndarray):
+    def _load(self):
+        """Loads the index and associated data from disk if they exist."""
+        if os.path.exists(self.index_path):
+            print("Loading persistent FAISS index from disk...")
+            self.index = faiss.read_index(self.index_path)
+            with open(self.map_path, 'r') as f:
+                self.id_to_turn_map = {int(k): v for k, v in json.load(f).items()}
+            with open(self.keys_path, 'r') as f:
+                self.added_keys = set(json.load(f))
+            self.next_id = self.index.ntotal
+        else:
+            print("No persistent FAISS index found, initializing a new one.")
+            self.index = faiss.IndexHNSWFlat(self.embedding_dim, 32)
+            self.index.hnsw.efSearch = 128
+            self.id_to_turn_map = {}
+            self.added_keys = set()
+            self.next_id = 0
+
+    def _save(self):
+        """Saves the index and associated data to disk."""
+        print(f"Saving FAISS index with {self.index.ntotal} vectors to disk...")
+        faiss.write_index(self.index, self.index_path)
+        with open(self.map_path, 'w') as f:
+            json.dump(self.id_to_turn_map, f)
+        with open(self.keys_path, 'w') as f:
+            json.dump(list(self.added_keys), f)
+
+    def _generate_turn_key(self, turn: Dict[str, Any], match_id: str) -> str:
+        """Creates a deterministic, unique identifier for a conversation turn."""
+        content = turn.get('content', '')
+        # Use a deterministic hash function like SHA256 instead of the built-in hash()
+        content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+        return f"{match_id}|{turn.get('role')}|{turn.get('date')}|{content_hash}"
+
+    def ensure_added(self, turns: List[Dict[str, Any]], vectors: np.ndarray, match_id: str):
         """
-        Adds new turns and their vectors to the index if they are not already present.
-
-        Note: This is a simple implementation that assumes a stateless index for each
-        API call. A production system would need a persistent index and a way to
-        uniquely identify turns across calls (e.g., using a database ID).
+        Incrementally adds new, unique turns and their vectors to the persistent index.
         """
         if vectors.shape[0] == 0:
             return
 
-        # For this stateless implementation, we clear and rebuild the index for each call.
-        self.index.reset()
-        self.id_to_turn_map.clear()
-        self.next_id = 0
+        new_vectors_to_add = []
+        new_turns_to_map = []
 
-        # Add vectors to the index
-        self.index.add(vectors)
-
-        # Map IDs to turns
         for i, turn in enumerate(turns):
-            self.id_to_turn_map[i] = turn
-        self.next_id = len(turns)
+            turn_key = self._generate_turn_key(turn, match_id)
+            if turn_key not in self.added_keys:
+                new_turns_to_map.append({'turn': turn, 'key': turn_key})
+                new_vectors_to_add.append(vectors[i])
+
+        if not new_vectors_to_add:
+            return
+
+        new_vectors_np = np.array(new_vectors_to_add).astype('float32')
+        self.index.add(new_vectors_np)
+
+        for turn_info in new_turns_to_map:
+            self.id_to_turn_map[self.next_id] = turn_info['turn']
+            self.added_keys.add(turn_info['key'])
+            self.next_id += 1
+
+        self._save()
 
     def search(self, query_vector: np.ndarray, k: int = 5) -> List[Tuple[Dict[str, Any], float]]:
-        """
-        Performs a similarity search on the index.
-
-        Args:
-            query_vector: The vector to search for. Must be 2D array.
-            k: The number of nearest neighbors to return.
-
-        Returns:
-            A list of tuples, where each tuple contains the similar turn and its distance.
-        """
+        """Performs a similarity search on the index."""
         if self.index.ntotal == 0:
             return []
 
-        distances, indices = self.index.search(query_vector, k)
+        k = min(k, self.index.ntotal)
+        distances, indices = self.index.search(query_vector.astype('float32'), k)
 
         results = []
         for i in range(k):
             idx = indices[0][i]
-            if idx != -1: # FAISS returns -1 for invalid indices
-                turn = self.id_to_turn_map.get(idx)
-                if turn:
-                    results.append((turn, distances[0][i]))
+            if idx != -1 and idx in self.id_to_turn_map:
+                results.append((self.id_to_turn_map[idx], distances[0][i]))
         return results
 
-# Global instance for the service
+# Global service instance that gets initialized on application startup.
 faiss_index_service = FaissIndex()
 
 def get_faiss_index():
-    """Dependency injection getter for the FAISS index service."""
     return faiss_index_service
