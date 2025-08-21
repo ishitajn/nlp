@@ -70,12 +70,15 @@ def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
     # 4. Evaluate Features & Probes
     features = probes.evaluate_features(cleaned_turns)
 
-    # 5. Discover Topics
+    # 5. Discover Topics & Conversation State
     n_clusters = min(4, len(cleaned_turns))
     if n_clusters > 1:
-        topic_results = topics.discover_and_label_topics(cleaned_turns, vectors, n_clusters=n_clusters)
+        conversation_state = topics.discover_and_label_topics(cleaned_turns, vectors, n_clusters=n_clusters)
     else:
-        topic_results = {"topics": [], "turn_to_topic_map": {}}
+        conversation_state = {
+            "focus": [], "avoid": [], "neutral": [], "sensitive": [],
+            "fetish": [], "sexual": [], "recent_topics": []
+        }
 
     # 6. Compute Geo/Time Features
     geo_features = planner.compute_geo_time_features(
@@ -84,17 +87,17 @@ def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
     )
 
     # 7. Generate Suggestions with LLM
-    context = pack_context(cleaned_turns, features, topic_results, geo_features)
+    context = pack_context(cleaned_turns, features, conversation_state, geo_features)
     raw_suggestions = suggestion_generator_service.suggest(context)
     final_suggestions = reranker.enforce_constraints(raw_suggestions)
 
     # 8. Assemble Final JSON
     final_json = assembler.build_final_json(
         payload=payload_dict,
-        topics=topic_results,
+        topics=conversation_state, # This is now the conversation_state object
         geo=geo_features,
         suggestions=final_suggestions,
-        features=features
+        features=features # This now contains analysis and sentiment
     )
     return final_json
 
