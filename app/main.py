@@ -1,12 +1,13 @@
 import sys
 import os
+import asyncio
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 from datetime import datetime
 import numpy as np
 
-# Add the project root to the Python path to allow for absolute imports
+# Add the project root to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # --- Pydantic Models ---
@@ -34,10 +35,9 @@ class AnalyzePayload(BaseModel):
     ui_settings: UISettings
 
 # --- Import Services ---
-from app.svc import normalizer, planner
+from app.svc import normalizer, planner, probes, topics, reranker, assembler
 from app.svc.embedder import embedder_service
 from app.svc.index import faiss_index_service
-from app.svc import probes, topics, reranker, assembler
 from app.svc.generator import suggestion_generator_service, pack_context
 
 # --- FastAPI App ---
@@ -47,57 +47,63 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# --- Analysis Pipeline (as a standalone function for testability) ---
-def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
+# --- Analysis Pipeline (Now Asynchronous) ---
+async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
     """
-    The main analysis pipeline that orchestrates all the services.
+    The main analysis pipeline, running blocking IO and CPU-bound tasks in a thread pool.
     """
     payload_dict = payload.dict(by_alias=True)
     payload_dict['timestamp'] = datetime.utcnow().isoformat()
 
-    # 1. Normalize and Clean
-    cleaned_turns = normalizer.clean_and_truncate(payload_dict["scraped_data"]["conversationHistory"])
+    # 1. Normalize and Clean (Fast, but run in thread for consistency)
+    cleaned_turns = await asyncio.to_thread(
+        normalizer.clean_and_truncate, payload_dict["scraped_data"]["conversationHistory"]
+    )
     if not cleaned_turns:
         raise HTTPException(status_code=400, detail="Conversation history cannot be empty.")
     turn_texts = [t["content"] for t in cleaned_turns]
 
-    # 2. Generate Embeddings
-    vectors = embedder_service.encode_cached(turn_texts)
+    # 2. Generate Embeddings (Slow, CPU-bound)
+    vectors = await asyncio.to_thread(embedder_service.encode_cached, turn_texts)
 
-    # 3. Add to FAISS Index
-    faiss_index_service.ensure_added(cleaned_turns, vectors, payload.match_id)
+    # 3. Add to FAISS Index (Potential disk I/O)
+    await asyncio.to_thread(faiss_index_service.ensure_added, cleaned_turns, vectors, payload.match_id)
 
-    # 4. Evaluate Features & Probes
-    features = probes.evaluate_features(cleaned_turns)
+    # 4. Evaluate Features & Probes (CPU-bound)
+    features = await asyncio.to_thread(probes.evaluate_features, cleaned_turns)
 
-    # 5. Discover Topics & Conversation State
+    # 5. Discover Topics & Conversation State (CPU-bound)
     n_clusters = min(4, len(cleaned_turns))
     if n_clusters > 1:
-        conversation_state = topics.discover_and_label_topics(cleaned_turns, vectors, n_clusters=n_clusters)
+        conversation_state = await asyncio.to_thread(
+            topics.discover_and_label_topics, cleaned_turns, vectors, n_clusters=n_clusters
+        )
     else:
         conversation_state = {
             "focus": [], "avoid": [], "neutral": [], "sensitive": [],
             "fetish": [], "sexual": [], "recent_topics": []
         }
 
-    # 6. Compute Geo/Time Features
-    geo_features = planner.compute_geo_time_features(
+    # 6. Compute Geo/Time Features (Network I/O)
+    geo_features = await asyncio.to_thread(
+        planner.compute_geo_time_features,
         payload.ui_settings.my_location,
         payload.scraped_data.their_location_string
     )
 
-    # 7. Generate Suggestions with LLM
-    context = pack_context(cleaned_turns, features, conversation_state, geo_features)
-    raw_suggestions = suggestion_generator_service.suggest(context)
-    final_suggestions = reranker.enforce_constraints(raw_suggestions)
+    # 7. Generate Suggestions with LLM (Slow, CPU-bound)
+    context = await asyncio.to_thread(pack_context, cleaned_turns, features, conversation_state, geo_features)
+    raw_suggestions = await asyncio.to_thread(suggestion_generator_service.suggest, context)
+    final_suggestions = await asyncio.to_thread(reranker.enforce_constraints, raw_suggestions)
 
-    # 8. Assemble Final JSON
-    final_json = assembler.build_final_json(
+    # 8. Assemble Final JSON (Fast, but run in thread for consistency)
+    final_json = await asyncio.to_thread(
+        assembler.build_final_json,
         payload=payload_dict,
-        topics=conversation_state, # This is now the conversation_state object
+        topics=conversation_state,
         geo=geo_features,
         suggestions=final_suggestions,
-        features=features # This now contains analysis and sentiment
+        features=features
     )
     return final_json
 
@@ -112,9 +118,7 @@ async def analyze_conversation_endpoint(payload: AnalyzePayload):
             status_code=501,
             detail="The 'fast' analysis mode is not implemented. Please set 'useEnhancedNlp' to true."
         )
-    # Using a simple direct call for now. For long-running tasks,
-    # FastAPI's BackgroundTasks would be a better choice.
-    return run_analysis_pipeline(payload)
+    return await run_analysis_pipeline(payload)
 
 @app.get("/")
 async def root():

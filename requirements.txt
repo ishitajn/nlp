@@ -12,3 +12,4 @@ scikit-learn
 accelerate
 faiss-cpu
 llama-cpp-python
+optimum[onnxruntime]
