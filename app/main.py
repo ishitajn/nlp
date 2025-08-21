@@ -1,7 +1,6 @@
 import sys
 import os
 import asyncio
-import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
@@ -125,6 +124,3 @@ async def analyze_conversation_endpoint(payload: AnalyzePayload):
 @app.get("/")
 async def root():
     return {"message": "Dating Conversation Analyzer is running."}
-
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

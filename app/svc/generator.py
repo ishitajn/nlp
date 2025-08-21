@@ -1,23 +1,15 @@
 import os
-import json
+import re
 from llama_cpp import Llama
 from typing import Dict, Any, List
 
 def _create_system_prompt() -> str:
-    """Creates the system prompt with instructions to generate JSON."""
+    """Creates a simpler system prompt for the LLM."""
     return """You are a sophisticated dating assistant AI. Your task is to provide insightful and actionable suggestions based on conversation data.
-Analyze the user and conversation data provided.
-Your output MUST be a single, valid JSON object and nothing else. Do not include any text, explanations, or markdown before or after the JSON.
-The JSON object must have the following structure:
-{
-  "topics": ["<suggestion>", "<suggestion>"],
-  "questions": ["<suggestion>", "string"],
-  "sexual": ["<suggestion>", "string"],
-  "intimacy": ["<suggestion>", "string"]
-}
-- Generate up to two suggestions for each category.
-- The "sexual" category should only contain suggestions if the conversation's flirtation level is NOT "low". If it is low, return an empty list for "sexual".
-- All suggestions must be strings.
+Please provide suggestions for the following categories: Topics, Questions, Intimacy.
+If the conversation's flirtation level is not 'low', also provide suggestions for the Sexual category.
+Use headings for each category, for example: 'Topic:', 'Question:', 'Sexual:', 'Intimacy:'.
+Provide up to two suggestions for each category, each on a new line starting with a hyphen.
 """
 
 def _create_user_prompt(turns: List[Dict[str, Any]], features: Dict[str, Any], topics: Dict[str, Any], geo: Dict[str, Any]) -> str:
@@ -28,7 +20,8 @@ def _create_user_prompt(turns: List[Dict[str, Any]], features: Dict[str, Any], t
     flirtation_level = analysis_context.get("flirtation_level", "N/A")
     recent_topics_str = ", ".join(topics.get('recent_topics', [])) or "N/A"
 
-    return f"""Here is the data to analyze:
+    return f"""Based on the following data, please provide helpful suggestions.
+
 **Conversation Analysis:**
 - Engagement Level: {engagement_level}
 - Flirtation Level: {flirtation_level}
@@ -37,35 +30,48 @@ def _create_user_prompt(turns: List[Dict[str, Any]], features: Dict[str, Any], t
 
 **Conversation History:**
 {conversation_history}
-
-Now, provide your analysis in the specified JSON format.
 """
 
-def _parse_json_output(raw_text: str) -> Dict[str, List[str]]:
+def _parse_llm_output_flexibly(raw_text: str) -> Dict[str, List[str]]:
     """
-    Parses the raw text output from the LLM, expecting a JSON object.
+    Parses the raw text output from the LLM using a flexible, state-based approach.
+    It looks for headings and bullet points.
     """
-    try:
-        # Find the JSON block, which might be enclosed in markdown backticks
-        if "```json" in raw_text:
-            json_str = raw_text.split("```json")[1].split("```")[0]
-        elif "```" in raw_text:
-            json_str = raw_text.split("```")[1].split("```")[0]
-        else:
-            json_str = raw_text
+    suggestions = {"topics": [], "questions": [], "sexual": [], "intimacy": []}
 
-        data = json.loads(json_str.strip())
+    # Normalize headings to map to our internal keys
+    category_map = {
+        "topic": "topics",
+        "suggestion": "topics", # The model seems to use this interchangeably
+        "question": "questions",
+        "sexual": "sexual",
+        "intimacy": "intimacy"
+    }
 
-        # Validate structure
-        expected_keys = {"topics", "questions", "sexual", "intimacy"}
-        if not isinstance(data, dict) or not expected_keys.issubset(data.keys()):
-            print(f"Warning: LLM output is valid JSON but has wrong structure. Output: {data}")
-            return {"topics": [], "questions": [], "sexual": [], "intimacy": []}
+    current_category = None
 
-        return data
-    except (json.JSONDecodeError, IndexError) as e:
-        print(f"Error decoding LLM JSON output: {e}. Raw text: '{raw_text}'")
-        return {"topics": [], "questions": [], "sexual": [], "intimacy": []}
+    for line in raw_text.strip().split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+
+        # Check if the line is a heading
+        match = re.match(r'^([a-zA-Z]+):', line)
+        if match:
+            heading = match.group(1).lower()
+            if heading in category_map:
+                current_category = category_map[heading]
+                continue # Move to the next line after identifying a heading
+
+        # Check if the line is a suggestion item
+        if line.startswith('-'):
+            if current_category:
+                suggestion_text = line.lstrip('- ').strip()
+                # Avoid adding empty or nonsensical suggestions
+                if len(suggestion_text) > 5:
+                    suggestions[current_category].append(suggestion_text)
+
+    return suggestions
 
 class SuggestionGenerator:
     def __init__(self, model_path: str = "/home/adwise/Workspace/Models/TheBloke_TinyLlama-1.1B-Chat-v1.0-GGUF_tinyllama-1.1b-chat-v1.0.Q5_K_M.gguf"):
@@ -91,10 +97,10 @@ class SuggestionGenerator:
             response = self.model.create_chat_completion(
                 messages=messages,
                 max_tokens=512,
-                temperature=0.5,
+                temperature=0.7,
             )
             raw_text = response['choices'][0]['message']['content']
-            return _parse_json_output(raw_text)
+            return _parse_llm_output_flexibly(raw_text)
         except Exception as e:
             print(f"Error during suggestion generation: {e}")
             return {"topics": [], "questions": [], "sexual": [], "intimacy": []}
