@@ -12,16 +12,9 @@ def build_final_json(
     This structure is based on the high-level system overview.
     """
 
-    # The final JSON schema needs to be well-defined.
-    # Based on the prompt, the output is a "Unified JSON" with keys:
-    # - topics
-    # - geo
-    # - predictions_and_suggestions
-    # - analysis (includes sexual/intimacy + robust engagement metrics)
-
     final_output = {
-        "matchId": payload.get("match_id"),
-        "analysis_timestamp": payload.get("timestamp"), # We should add a timestamp to the payload
+        "matchId": payload.get("matchId"),
+        "analysis_timestamp": payload.get("timestamp"),
 
         "topics": {
             "discovered_topics": topics.get("topics", []),

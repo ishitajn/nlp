@@ -3,11 +3,13 @@ import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
+from datetime import datetime
+import numpy as np
 
-# Add the parent directory to the Python path to allow for absolute imports
+# Add the project root to the Python path to allow for absolute imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# Pydantic Models for Request Payload
+# --- Pydantic Models ---
 class ConversationTurn(BaseModel):
     role: Literal["user", "assistant"]
     content: str
@@ -28,28 +30,88 @@ class UISettings(BaseModel):
 
 class AnalyzePayload(BaseModel):
     match_id: str = Field(..., alias="matchId")
-    scraped_data: ScrapedData = Field(..., alias="scraped_data")
-    ui_settings: UISettings = Field(..., alias="ui_settings")
+    scraped_data: ScrapedData
+    ui_settings: UISettings
 
-# FastAPI App
-app = FastAPI()
+# --- Import Services ---
+from app.svc import normalizer, planner
+from app.svc.embedder import embedder_service
+from app.svc.index import faiss_index_service
+from app.svc import probes, topics, reranker, assembler
+from app.svc.generator import suggestion_generator_service, pack_context
 
+# --- FastAPI App ---
+app = FastAPI(
+    title="Dating Conversation Analyzer",
+    description="An NLP-driven API to analyze dating conversations and provide insights.",
+    version="1.0.0"
+)
+
+# --- Analysis Pipeline (as a standalone function for testability) ---
+def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
+    """
+    The main analysis pipeline that orchestrates all the services.
+    """
+    payload_dict = payload.dict(by_alias=True)
+    payload_dict['timestamp'] = datetime.utcnow().isoformat()
+
+    # 1. Normalize and Clean
+    cleaned_turns = normalizer.clean_and_truncate(payload_dict["scraped_data"]["conversationHistory"])
+    if not cleaned_turns:
+        raise HTTPException(status_code=400, detail="Conversation history cannot be empty.")
+    turn_texts = [t["content"] for t in cleaned_turns]
+
+    # 2. Generate Embeddings
+    vectors = embedder_service.encode_cached(turn_texts)
+
+    # 3. Add to FAISS Index
+    faiss_index_service.ensure_added(cleaned_turns, vectors)
+
+    # 4. Evaluate Features & Probes
+    features = probes.evaluate_features(cleaned_turns)
+
+    # 5. Discover Topics
+    n_clusters = min(4, len(cleaned_turns))
+    if n_clusters > 1:
+        topic_results = topics.discover_and_label_topics(cleaned_turns, vectors, n_clusters=n_clusters)
+    else:
+        topic_results = {"topics": [], "turn_to_topic_map": {}}
+
+    # 6. Compute Geo/Time Features
+    geo_features = planner.compute_geo_time_features(
+        payload.ui_settings.my_location,
+        payload.scraped_data.their_location_string
+    )
+
+    # 7. Generate Suggestions with LLM
+    context = pack_context(cleaned_turns, features, topic_results, geo_features)
+    raw_suggestions = suggestion_generator_service.suggest(context)
+    final_suggestions = reranker.enforce_constraints(raw_suggestions)
+
+    # 8. Assemble Final JSON
+    final_json = assembler.build_final_json(
+        payload=payload_dict,
+        topics=topic_results,
+        geo=geo_features,
+        suggestions=final_suggestions,
+        features=features
+    )
+    return final_json
+
+# --- API Endpoints ---
 @app.post("/analyze")
-async def analyze_conversation(payload: AnalyzePayload):
+async def analyze_conversation_endpoint(payload: AnalyzePayload):
     """
     Analyzes a dating conversation to provide insights and suggestions.
     """
     if not payload.ui_settings.use_enhanced_nlp:
-        # For now, we only implement the enhanced NLP path.
-        # A fast, rule-based version could be implemented here.
         raise HTTPException(
             status_code=501,
             detail="The 'fast' analysis mode is not implemented. Please set 'useEnhancedNlp' to true."
         )
-
-    # This is where the full pipeline will be called.
-    # For now, just return a confirmation.
-    return {"message": "Payload received successfully. Analysis pipeline will be implemented here."}
+    # Using a simple direct call for now. For long-running tasks,
+    # FastAPI's BackgroundTasks would be a better choice.
+    return run_analysis_pipeline(payload)
 
 @app.get("/")
 async def root():
