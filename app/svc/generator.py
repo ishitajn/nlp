@@ -22,7 +22,7 @@ You are a sophisticated dating assistant AI. Your task is to provide insightful 
 **Conversation Analysis:**
 - Engagement Level: {engagement_level}
 - Flirtation Level: {flirtation_level}
-- Recent Topics: {', '.join(topics.get('recent_topics', []))}
+- Recent Topics:\n- {topics_str if (topics_str := "\n- ".join(topics.get('recent_topics', []))) else "N/A"}
 - Location Context: The user and match are {geo.get('distance_km', 'N/A')} km apart.
 
 **Conversation History:**

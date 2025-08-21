@@ -69,6 +69,9 @@ def discover_and_label_topics(turns: List[Dict[str, Any]], vectors: np.ndarray, 
             categorized_topics["neutral"].append(topic_label)
             recent_topic_labels.append(topic_label)
 
+    # For now, 'focus' topics can be the same as 'neutral' ones as a placeholder
+    categorized_topics["focus"] = categorized_topics["neutral"]
+
     # Add recent topics for context awareness
     output = categorized_topics
     output["recent_topics"] = recent_topic_labels

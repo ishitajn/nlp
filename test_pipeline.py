@@ -6,10 +6,9 @@ import asyncio
 # Add the project root to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
-from app.main import run_analysis_pipeline
-from app.schemas import AnalyzePayload
+from app.main import run_analysis_pipeline, AnalyzePayload
 
-async def run_test():
+def run_test():
     """
     Runs an end-to-end test of the analysis pipeline.
     """
@@ -65,8 +64,10 @@ async def run_test():
         return
 
     # Run the pipeline
+    # Since the main function is not async, we can call it directly.
+    # If it were async, we would need to use asyncio.run()
     try:
-        result = await run_analysis_pipeline(payload)
+        result = run_analysis_pipeline(payload)
         print("\n--- Pipeline Execution Successful ---")
         print("Final JSON Output:")
         print(json.dumps(result, indent=2))
@@ -78,4 +79,4 @@ async def run_test():
 
 
 if __name__ == "__main__":
-    asyncio.run(run_test())
+    run_test()
