@@ -68,7 +68,7 @@ def _parse_json_output(raw_text: str) -> Dict[str, List[str]]:
         return {"topics": [], "questions": [], "sexual": [], "intimacy": []}
 
 class SuggestionGenerator:
-    def __init__(self, model_path: str = "/app/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"):
+    def __init__(self, model_path: str = "/home/adwise/Workspace/Models/TheBloke_TinyLlama-1.1B-Chat-v1.0-GGUF_tinyllama-1.1b-chat-v1.0.Q5_K_M.gguf"):
         self.model = None
         if os.path.exists(model_path):
             self.model = Llama(model_path=model_path, n_ctx=2048, n_threads=2, verbose=False)
