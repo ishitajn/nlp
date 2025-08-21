@@ -22,7 +22,7 @@ You are a sophisticated dating assistant AI. Your task is to provide insightful 
 **Conversation Analysis:**
 - Engagement Level: {engagement_level}
 - Flirtation Level: {flirtation_level}
-- Recent Topics:\n- {topics_str if (topics_str := "\n- ".join(topics.get('recent_topics', []))) else "N/A"}
+- Recent Topics: {', '.join(topics.get('recent_topics', []))}
 - Location Context: The user and match are {geo.get('distance_km', 'N/A')} km apart.
 
 **Conversation History:**
@@ -56,14 +56,37 @@ class SuggestionGenerator:
 
     def suggest(self, context_pack: str) -> Dict[str, List[str]]:
         """
-        Generates suggestions from the LLM based on the provided context prompt.
+        Generates suggestions from the LLM based on the provided context prompt,
+        using the chat completion endpoint.
         """
         if not self.model:
             return self._get_placeholder_suggestions()
 
-        output = self.model(prompt=context_pack, max_tokens=256, temperature=0.7, echo=False)
-        raw_text = output['choices'][0]['text']
-        return self._parse_llm_output(raw_text)
+        # The model is a Chat Model, so we need to structure the input accordingly.
+        # We will split the generated prompt into a system instruction and a user message.
+        # The sentinel for the split is the "**Your Task:**" section header.
+        try:
+            parts = context_pack.split("**Your Task:**", 1)
+            system_content = parts[0].strip()
+            user_content = ("**Your Task:**" + parts[1]).strip()
+
+            messages = [
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": user_content}
+            ]
+
+            response = self.model.create_chat_completion(
+                messages=messages,
+                max_tokens=256,
+                temperature=0.7,
+            )
+            raw_text = response['choices'][0]['message']['content']
+            return self._parse_llm_output(raw_text)
+
+        except Exception as e:
+            print(f"Error during suggestion generation: {e}")
+            # Fallback to placeholders if chat completion fails for any reason
+            return self._get_placeholder_suggestions()
 
     def _parse_llm_output(self, text: str) -> Dict[str, List[str]]:
         """
