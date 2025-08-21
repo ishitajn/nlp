@@ -38,7 +38,7 @@ class AnalyzePayload(BaseModel):
 from app.svc import normalizer, planner, probes, topics, reranker, assembler
 from app.svc.embedder import embedder_service
 from app.svc.index import faiss_index_service
-from app.svc.generator import suggestion_generator_service, pack_context
+from app.svc.generator import suggestion_generator_service
 
 # --- FastAPI App ---
 app = FastAPI(
@@ -92,8 +92,9 @@ async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
     )
 
     # 7. Generate Suggestions with LLM (Slow, CPU-bound)
-    context = await asyncio.to_thread(pack_context, cleaned_turns, features, conversation_state, geo_features)
-    raw_suggestions = await asyncio.to_thread(suggestion_generator_service.suggest, context)
+    raw_suggestions = await asyncio.to_thread(
+        suggestion_generator_service.suggest, cleaned_turns, features, conversation_state, geo_features
+    )
     final_suggestions = await asyncio.to_thread(reranker.enforce_constraints, raw_suggestions)
 
     # 8. Assemble Final JSON (Fast, but run in thread for consistency)
