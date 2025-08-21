@@ -10,3 +10,5 @@ torch
 sentence-transformers
 scikit-learn
 accelerate
+faiss-cpu
+llama-cpp-python
