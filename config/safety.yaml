@@ -1,0 +1,12 @@
+language: ["en"]
+
+ban_regex:
+  - "\\b(minor|under\\s*18|child|kid|teen\\b.sex|non\\sconsent|rape|incest|bestiality|cnc)\\b"
+
+profanity_keywords:
+  sexual_level_2:
+    - "(?:sex|erotic|make love|oral|foreplay|turn on|arousal|lingerie)"
+  sexual_level_3:
+    - "(?:blowjob|anal|cum|cock|pussy|penetrat|deepthroat|nude|sexting)"
+
+allow_explicit_opt_in: false # runtime override allowed

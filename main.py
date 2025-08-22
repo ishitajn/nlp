@@ -46,7 +46,8 @@ async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
         run_full_analysis,
         payload.ui_settings.my_profile,
         payload.scraped_data.their_profile,
-        cleaned_turns
+        cleaned_turns,
+        payload.ui_settings.used_ids
     )
     geo_task = asyncio.to_thread(
         compute_geo_time_features,
@@ -60,7 +61,7 @@ async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
         assembler.build_final_json,
         payload=payload_dict,
         analysis_data=full_analysis["analysis_results"],
-        suggestions=full_analysis["suggestion_prompts"],
+        suggestions=full_analysis["suggestions"],
         geo=geo_features
     )
     with open('analysis.json', 'a+') as f:

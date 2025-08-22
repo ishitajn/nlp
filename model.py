@@ -13,11 +13,13 @@ class ScrapedData(BaseModel):
     their_profile: str = Field(..., alias="theirProfile")
     their_location_string: str = Field(..., alias="theirLocationString")
     conversation_history: List[ConversationTurn] = Field(..., alias="conversationHistory")
+
 class UISettings(BaseModel):
     use_enhanced_nlp: bool = Field(..., alias="useEnhancedNlp")
     my_location: str = Field(..., alias="myLocation")
     my_profile: str = Field(..., alias="myProfile")
     local_model_name: Optional[str] = Field(None, alias="local_model_name")
+    used_ids: Optional[List[str]] = Field(None, alias="usedIds")
 class AnalyzePayload(BaseModel):
     match_id: str = Field(..., alias="matchId")
     scraped_data: ScrapedData

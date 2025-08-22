@@ -10,3 +10,14 @@ torch
 sentence-transformers
 scikit-learn
 accelerate
+beautifulsoup4
+requests
+pdfminer.six
+langdetect
+simhash
+pandas
+nltk
+faiss-cpu
+spacy
+spacy-transformers
+PyYAML

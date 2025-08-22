@@ -6,6 +6,8 @@ from spacy.matcher import PhraseMatcher
 from collections import Counter
 from typing import List, Dict, Any
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from scripts.suggest import suggest
+from topicbank.tagging import tag_topics as tag_topics_from_bank
 
 # --- Load the HIGH-ACCURACY Transformer NLP model once on startup ---
 try:
@@ -110,44 +112,19 @@ if nlp:
         pattern_docs = [nlp.make_doc(text) for text in patterns]
         phrase_matcher.add(topic, pattern_docs)
 
-def _generate_suggestion_prompts(analysis: Dict[str, Any], conversation_history: str) -> Dict[str, str]:
-    """Generates specific, high-quality prompts for an external LLM based on the rich analysis."""
-    context_summary = f"""- Conversation Phase: {', '.join(analysis['detected_phases']) or 'N/A'}
-- Detected Tones: {', '.join(analysis['detected_tones']) or 'N/A'}
-- Key Topics: {', '.join(analysis['conversation_state']['topics']['focus']) or 'N/A'}
-- Overall Sentiment: {analysis['sentiment_analysis']['overall']}
-- Flirtation Score (0-10): {analysis['sentiment_analysis']['flirtation_score']:.1f}"""
-
-    base_prompt = f"""
-### CONVERSATION ANALYSIS
-{context_summary}
-
-### RECENT CONVERSATION
-{conversation_history}
-
-### TASK
-Based on the analysis and conversation, generate two creative, concise suggestion phrases (3-5 words max) for the category below. The suggestions must be highly relevant. Output ONLY a JSON array of two strings. Example: ["first suggestion", "second suggestion"]
-
-Category: """
-
-    return {
-        "topics": base_prompt + "New Conversation Topics",
-        "questions": base_prompt + "Engaging Questions to Ask",
-        "intimacy": base_prompt + "Ways to Build Intimacy",
-        "sexual": base_prompt + "Flirty or Sexual Escalations"
-    }
-
-def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str, Any]]) -> Dict[str, Any]:
+def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str, Any]], used_ids: List[str] = None) -> Dict[str, Any]:
     """
     Performs the entire analysis pipeline using the best available tools:
     1. A high-accuracy Transformer model (en_core_web_trf).
     2. PhraseMatcher with a massive custom vocabulary for key topics.
     3. spaCy's noun chunking for general, dynamic topics.
     4. Regex for conversation structure (Phases, Tones, Intents).
+    5. Integrated topic suggestion engine.
     """
     if not nlp:
         raise RuntimeError("spaCy model is not loaded. Please install and download it.")
 
+    used_ids_set = set(used_ids) if used_ids else set()
     conversation_history_str = "\n".join([f"{t.get('content', '')}" for t in turns])
     full_text_for_rules = f"{my_profile} {their_profile} {conversation_history_str}"
     full_text_lower = full_text_for_rules.lower()
@@ -210,11 +187,20 @@ def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str,
         "overall": sentiment, "compound_score": compound_score, "flirtation_score": flirtation_score
     }
 
-    # --- 5. Generate Suggestion Prompts ---
-    suggestion_prompts = _generate_suggestion_prompts(analysis, conversation_history_str)
+    # --- 5. Get Topic Suggestions from new Engine ---
+    profile_text = (my_profile or "") + " " + (their_profile or "")
+    profile_tags = set(tag_topics_from_bank(profile_text))
+
+    convo_texts = [t.get('content', '') for t in turns]
+
+    suggestions = suggest(
+        convo_texts=convo_texts,
+        profile_tags=profile_tags,
+        used_ids=used_ids_set
+    )
 
     # --- 6. Assemble Final Output ---
     return {
         "analysis_results": analysis,
-        "suggestion_prompts": suggestion_prompts
+        "suggestions": suggestions
     }

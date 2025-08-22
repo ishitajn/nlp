@@ -5,7 +5,7 @@ from typing import Dict, Any, List
 def build_final_json(
     payload: Dict[str, Any],
     analysis_data: Dict[str, Any],
-    suggestions: Dict[str, str],
+    suggestions: List[Dict[str, Any]],
     geo: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
@@ -42,9 +42,9 @@ def build_final_json(
         "matchId": payload.get("matchId"),
         "conversation_state": conversation_state,
         "geo": geo_output,
-        "suggestions": suggestions, # This now contains the prompts
+        "suggestions": suggestions, # This now contains the direct suggestions
         "analysis": final_analysis_object,
-        "pipeline": "enhanced_hybrid_nlp_v4"
+        "pipeline": "enhanced_hybrid_nlp_v5_retrieval" # Updated pipeline name
     }
 
     return final_output
