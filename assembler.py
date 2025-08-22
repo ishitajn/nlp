@@ -13,7 +13,7 @@ def build_final_json(
     """
     # The analysis_data now contains the dynamically generated conversation_state
     conversation_state = analysis_data.get("conversation_state", {
-        "topics": {"focus": [], "avoid": [], "neutral": [], "sensitive": [], "fetish": [], "sexual": []},
+        "topics": {},
         "recent_topics": []
     })
 

@@ -8,8 +8,12 @@ from typing import List, Dict, Any
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from scripts.suggest import suggest
 from topicbank.tagging import tag_topics as tag_topics_from_bank
+from topicbank.indexer import load_index
+from topicbank.embed import get_model as get_sentence_model
 
-# --- Load the HIGH-ACCURACY Transformer NLP model once on startup ---
+# --- Load all models and data once on startup ---
+
+# Load spaCy model
 try:
     # This is the key upgrade: using the transformer model for SOTA accuracy.
     nlp = spacy.load("en_core_web_trf")
@@ -17,6 +21,17 @@ try:
 except OSError:
     print("Spacy model 'en_core_web_trf' not found. Please run 'pip install spacy-transformers && python -m spacy download en_core_web_trf'")
     nlp = None
+
+# Load Topic Bank Index and Sentence Transformer Model
+topic_index, topic_meta, sentence_model = None, None, None
+try:
+    print("Loading topic suggestion index...")
+    topic_index, _, topic_meta = load_index("data/index")
+    sentence_model = get_sentence_model()
+    print(f"Successfully loaded topic index with {len(topic_meta)} items.")
+except FileNotFoundError:
+    print("WARNING: Topic suggestion index not found at 'data/index'. Categorization will be limited and suggestions will not work. Please run 'scripts/build_index.py'.")
+
 
 # ==============================================================================
 # == THE DEFINITIVE, MASSIVELY EXPANDED CUSTOM VOCABULARY                     ==
@@ -112,6 +127,31 @@ if nlp:
         pattern_docs = [nlp.make_doc(text) for text in patterns]
         phrase_matcher.add(topic, pattern_docs)
 
+def categorize_topics_by_similarity(topics: List[str]) -> Dict[str, str]:
+    """
+    Categorizes a list of topics by finding the most similar topic in the indexed topic bank.
+    """
+    if not topic_index or not sentence_model or not topic_meta:
+        return {}
+
+    if not topics:
+        return {}
+
+    # Encode the topics to get their vector representations
+    topic_vectors = sentence_model.encode(topics, normalize_embeddings=True, convert_to_numpy=True)
+
+    # Search the FAISS index for the single nearest neighbor (k=1)
+    distances, indices = topic_index.search(topic_vectors.astype("float32"), k=1)
+
+    # Create a mapping from topic to its inferred category
+    categorized_topics = {}
+    for i, topic in enumerate(topics):
+        if indices[i][0] != -1: # FAISS returns -1 for no result
+            match_meta = topic_meta[indices[i][0]]
+            categorized_topics[topic] = match_meta.get("category", "unknown")
+
+    return categorized_topics
+
 def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str, Any]], used_ids: List[str] = None) -> Dict[str, Any]:
     """
     Performs the entire analysis pipeline using the best available tools:
@@ -157,15 +197,25 @@ def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str,
     analysis = {k: list(v) for k, v in detected_tags.items()}
 
     # --- 3. Categorize Dynamic Topics ---
-    sexual_topics = {t for t in focus_topics if any(kw in t.lower() for kw in SEXUAL_TOPIC_KEYWORDS)}
-    sensitive_topics = {t for t in focus_topics if any(kw in t.lower() for kw in SENSITIVE_TOPIC_KEYWORDS)}
-    neutral_topics = {t for t in focus_topics if t not in sexual_topics and t not in sensitive_topics}
+    # High-precision topics from CUSTOM_VOCAB
+    categorized_custom_topics = {topic: topic for topic in custom_topics}
+
+    # General topics from noun chunks, categorized by similarity
+    categorized_general_topics = categorize_topics_by_similarity(list(general_topics))
+
+    # Merge the two sets of topics
+    all_categorized_topics = {**categorized_general_topics, **categorized_custom_topics}
+
+    # Restructure for final output
+    final_topics_by_category = {}
+    for topic, category in all_categorized_topics.items():
+        if category not in final_topics_by_category:
+            final_topics_by_category[category] = []
+        final_topics_by_category[category].append(topic)
+
 
     conversation_state = {
-        "topics": {
-            "focus": list(focus_topics), "avoid": [], "neutral": list(neutral_topics),
-            "sensitive": list(sensitive_topics), "fetish": [], "sexual": list(sexual_topics)
-        },
+        "topics": final_topics_by_category,
         "recent_topics": list(focus_topics)
     }
     analysis["conversation_state"] = conversation_state
