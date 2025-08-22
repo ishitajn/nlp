@@ -5,7 +5,7 @@ from typing import Dict, Any, List
 def build_final_json(
     payload: Dict[str, Any],
     analysis_data: Dict[str, Any],
-    suggestions: List[Dict[str, Any]],
+    suggestions: Dict[str, List[Dict[str, Any]]],
     geo: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
@@ -37,14 +37,20 @@ def build_final_json(
         "flirtation_score": analysis_data.get("sentiment_analysis", {}).get("flirtation_score", 0.0)
     }
 
+    # Format suggestions into the desired final format: Dict[str, List[str]]
+    final_suggestions = {
+        category: [s['text'] for s in suggestion_list]
+        for category, suggestion_list in suggestions.items()
+    }
+
     # Assemble the final, unified JSON object
     final_output = {
         "matchId": payload.get("matchId"),
         "conversation_state": conversation_state,
         "geo": geo_output,
-        "suggestions": suggestions, # This now contains the direct suggestions
+        "suggestions": final_suggestions,
         "analysis": final_analysis_object,
-        "pipeline": "enhanced_hybrid_nlp_v5_retrieval" # Updated pipeline name
+        "pipeline": "enhanced_hybrid_nlp_v6_retrieval" # Updated pipeline name
     }
 
     return final_output

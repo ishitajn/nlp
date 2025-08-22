@@ -15,7 +15,7 @@ def suggest(
     convo_texts: list,
     profile_tags: set = set(),
     used_ids: set = set(),
-    k: int = 50,
+    k: int = 100, # Increased k to get more candidates
     allow_explicit: bool = False,
     index_dir: str = "data/index"
 ):
@@ -52,28 +52,36 @@ def suggest(
     # Re-rank the retrieved candidates
     ranked = rerank(pairs, meta, convo_texts, used_ids, profile_tags, recent_tags)
 
-    # Filter and format the final output
-    out = []
+    # Filter and format the final output, grouping by category
+    categorized_out = {}
+    SUGGESTIONS_PER_CATEGORY = 2
     for score, idx in ranked:
         m = meta[idx]
+        # --- Filtering ---
         if not allow_explicit and m["explicit_level"] >= 2:
             continue
         if m["id"] in used_ids:
             continue
+        if len(m["text"]) > 250: # Filter out long suggestions
+            continue
 
-        out.append({
-            "id": m["id"],
-            "text": m["text"],
-            "category": m["category"],
-            "explicit_level": m["explicit_level"],
-            "tags": m.get("tags", []),
-            "score": round(float(score), 4)
-        })
-        # Return top 2 suggestions
-        if len(out) == 2:
-            break
+        category = m.get("category", "unknown")
 
-    return out
+        # --- Grouping ---
+        if category not in categorized_out:
+            categorized_out[category] = []
+
+        if len(categorized_out[category]) < SUGGESTIONS_PER_CATEGORY:
+            categorized_out[category].append({
+                "id": m["id"],
+                "text": m["text"],
+                "category": category,
+                "explicit_level": m["explicit_level"],
+                "tags": m.get("tags", []),
+                "score": round(float(score), 4)
+            })
+
+    return categorized_out
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
