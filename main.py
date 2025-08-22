@@ -11,10 +11,7 @@ import normalizer
 from analysis_engine import run_full_analysis
 from model import AnalyzePayload
 from planner import compute_geo_time_features
-
-
-
-
+from suggestion_engine import generate_suggestions
 
 app = FastAPI(
     title="Dating Conversation Analyzer",
@@ -31,7 +28,6 @@ app.add_middleware(
 )
 
 
-# --- Analysis Pipeline (Pure Analysis & Prompt Generation) ---
 async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
     payload_dict = payload.dict(by_alias=True)
     
@@ -41,36 +37,42 @@ async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
     if not cleaned_turns:
         raise HTTPException(status_code=400, detail="Conversation history is empty.")
 
-    # --- Run ALL deterministic analysis in parallel (MILLISECONDS) ---
+    # --- Run ALL deterministic analysis in parallel ---
     analysis_task = asyncio.to_thread(
         run_full_analysis,
         payload.ui_settings.my_profile,
         payload.scraped_data.their_profile,
-        cleaned_turns
+        cleaned_turns  # This was the missing piece
     )
     geo_task = asyncio.to_thread(
         compute_geo_time_features,
         payload.ui_settings.my_location,
         payload.scraped_data.their_location_string
     )
-    full_analysis, geo_features = await asyncio.gather(analysis_task, geo_task)
+    analysis_results, geo_features = await asyncio.gather(analysis_task, geo_task)
 
-    # --- Assemble final output (MILLISECONDS) ---
+    # --- Generate final suggestions ---
+    final_suggestions = await asyncio.to_thread(
+        generate_suggestions,
+        analysis_data=analysis_results
+    )
+
+    # --- Assemble final output ---
     final_json = await asyncio.to_thread(
         assembler.build_final_json,
         payload=payload_dict,
-        analysis_data=full_analysis["analysis_results"],
-        suggestions=full_analysis["suggestion_prompts"],
+        analysis_data=analysis_results,
+        suggestions=final_suggestions,
         geo=geo_features
     )
     with open('analysis.json', 'a+') as f:
-        f.write(json.dumps(final_json, indent=4))
+        f.write(json.dumps(final_json, indent=4)+'\n,\n')
     return final_json
 
 @app.post("/analyze")
 async def analyze_conversation_endpoint(payload: AnalyzePayload):
     with open('load.json', 'a+') as f:
-        f.write(payload.model_dump_json(indent=4))
+        f.write(payload.model_dump_json(indent=4)+'\n,\n')
     return await run_analysis_pipeline(payload)
 
 @app.get("/")

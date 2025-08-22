@@ -59,37 +59,35 @@ def _clean_topic_label(text: str) -> str:
         text = text.split(" ", 1)[1]
     return text
 
-def _map_conversation_to_concepts(doc: spacy.tokens.Doc, similarity_threshold=0.6) -> Dict[str, List[str]]:
-    """Performs semantic search to map canonical concepts to relevant sentences."""
-    sentences = [sent.text for sent in doc.sents if len(sent.text.split()) > 3]
-    if not sentences: return {}
-
-    sentence_vectors = embedder_service.encode_cached(sentences)
-    similarity_matrix = cosine_similarity(sentence_vectors, canonical_topic_vectors)
-
-    concept_to_sentences_map = {name: [] for name in canonical_topic_names}
-    for i, sentence in enumerate(sentences):
-        best_match_index = np.argmax(similarity_matrix[i])
-        if similarity_matrix[i][best_match_index] > similarity_threshold:
-            canonical_topic = canonical_topic_names[best_match_index]
-            concept_to_sentences_map[canonical_topic].append(sentence)
-            
-    return {k: v for k, v in concept_to_sentences_map.items() if v}
-
-def _extract_raw_topics_from_sentences(sentences: List[str]) -> List[str]:
-    """Runs noun phrase extraction on a targeted list of sentences."""
-    if not sentences: return []
+def _deduplicate_and_merge_topics(topics: List[str], similarity_threshold=0.85) -> List[str]:
+    """Intelligently merges semantically similar topics."""
+    if not topics: return []
     
-    text = " ".join(sentences)
-    doc = nlp(text)
+    vectors = embedder_service.encode_cached(topics)
+    if vectors.shape[0] == 0: return []
+
+    similarity_matrix = cosine_similarity(vectors)
     
-    discovered_chunks = set()
-    stopwords = {'i', 'you', 'me', 'my', 'it', 'that', 'what', 'wbu', 'hmmmm', 'lol', 'haha', 'the first thing', 'a bit', 'thing', 'hihi'}
-    for chunk in doc.noun_chunks:
-        clean_chunk = _clean_topic_label(chunk.text)
-        if chunk.root.pos_ != 'PRON' and clean_chunk not in stopwords and len(clean_chunk) > 3:
-            discovered_chunks.add(clean_chunk)
-    return list(discovered_chunks)
+    merged_topics = set()
+    processed_indices = set()
+
+    for i in range(len(topics)):
+        if i in processed_indices: continue
+        
+        similar_indices = [j for j, score in enumerate(similarity_matrix[i]) if score > similarity_threshold]
+        
+        representative_topic = max([topics[k] for k in similar_indices], key=len)
+        merged_topics.add(representative_topic)
+        
+        processed_indices.update(similar_indices)
+        
+    return list(merged_topics)
+
+def _detect_inside_jokes(doc: spacy.tokens.Doc) -> List[str]:
+    propn_candidates = [chunk.text.strip() for chunk in doc.noun_chunks if chunk.root.pos_ == 'PROPN']
+    counts = Counter(propn_candidates)
+    common_words = {'orion', 'iceland', 'america'}
+    return [text for text, count in counts.items() if count > 1 and text.lower() not in common_words]
 
 def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not nlp: raise RuntimeError("spaCy model is not loaded.")
@@ -99,45 +97,64 @@ def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str,
     full_text_lower = full_text_for_rules.lower()
     doc = nlp(conversation_history_str)
     
-    # --- 1. Concept-Centric Semantic Search ---
-    concept_map = _map_conversation_to_concepts(doc)
-
-    # --- 2. Build the Definitive Topic Structure ---
-    topic_mapping = {}
-    categorized_raw_topics = { "neutral": set(), "sensitive": set(), "fetish": set(), "sexual": set(), "intimacy": set() }
+    # --- 1. Dynamic Topic Discovery ---
+    discovered_chunks = set()
+    stopwords = {'i', 'you', 'me', 'my', 'it', 'that', 'what', 'wbu', 'hmmmm', 'lol', 'haha', 'the first thing', 'a bit', 'thing', 'hihi'}
+    for chunk in doc.noun_chunks:
+        clean_chunk = _clean_topic_label(chunk.text)
+        if chunk.root.pos_ != 'PRON' and clean_chunk not in stopwords and len(clean_chunk) > 3:
+            discovered_chunks.add(clean_chunk)
     
-    for canonical_topic, sentences in concept_map.items():
-        raw_topics = _extract_raw_topics_from_sentences(sentences)
-        if not raw_topics: continue
-        
-        topic_mapping[canonical_topic] = raw_topics
-        category = TOPIC_TO_CATEGORY_MAP.get(canonical_topic, "neutral")
-        categorized_raw_topics[category].update(raw_topics)
+    if not discovered_chunks:
+        # Return a default empty structure if no topics are found
+        empty_state = { "topics": {"focus": [], "avoid": [], "neutral": [], "sensitive": [], "fetish": [], "sexual": [], "inside_jokes": []}, "recent_topics": [], "topic_occurrence_heatmap": {}, "topic_recency_heatmap": {}, "topic_mapping": {} }
+        return { "conversation_state": empty_state, "analysis": {}, "engagement_metrics": {}, "sentiment_analysis": {} }
 
-    # --- 3. Heatmap Calculation on Canonical Topics ---
-    occurrence_heatmap = dict(Counter(concept_map.keys()).most_common(15))
+    # --- 2. Semantic Deduplication ---
+    unique_topics = _deduplicate_and_merge_topics(list(discovered_chunks))
+
+    # --- 3. Semantic Mapping & Categorization ---
+    unique_topic_vectors = embedder_service.encode_cached(unique_topics)
+    if unique_topic_vectors.shape[0] == 0: # Check if vectors were generated
+        empty_state = { "topics": {"focus": [], "avoid": [], "neutral": [], "sensitive": [], "fetish": [], "sexual": [], "inside_jokes": []}, "recent_topics": [], "topic_occurrence_heatmap": {}, "topic_recency_heatmap": {}, "topic_mapping": {} }
+        return { "conversation_state": empty_state, "analysis": {}, "engagement_metrics": {}, "sentiment_analysis": {} }
+
+    similarity_matrix = cosine_similarity(unique_topic_vectors, canonical_topic_vectors)
+    
+    categorized_raw_topics = { "neutral": set(), "sensitive": set(), "fetish": set(), "sexual": set(), "intimacy": set() }
+    topic_mapping = {name: [] for name in canonical_topic_names}
+    canonical_topic_list_for_heatmaps = []
+
+    similarity_threshold = 0.4
+    for i, chunk in enumerate(unique_topics):
+        best_match_index = np.argmax(similarity_matrix[i])
+        if similarity_matrix[i][best_match_index] > similarity_threshold:
+            canonical_topic = canonical_topic_names[best_match_index]
+            category = TOPIC_TO_CATEGORY_MAP.get(canonical_topic, "neutral")
+            categorized_raw_topics[category].add(chunk)
+            topic_mapping[canonical_topic].append(chunk)
+            canonical_topic_list_for_heatmaps.append(canonical_topic)
+
+    # --- 4. Heatmap Calculation on Canonical Topics ---
+    occurrence_heatmap = dict(Counter(canonical_topic_list_for_heatmaps).most_common(15))
     
     last_occurrence = {}
     for i, turn in enumerate(turns):
-        turn_doc = nlp(turn['content'])
-        turn_sentences = [sent.text for sent in turn_doc.sents]
-        if not turn_sentences: continue
-        
-        turn_vectors = embedder_service.encode_cached(turn_sentences)
-        similarity_matrix = cosine_similarity(turn_vectors, canonical_topic_vectors)
-        
-        if np.max(similarity_matrix) > 0.6:
-            best_match_index = np.unravel_index(np.argmax(similarity_matrix, axis=None), similarity_matrix.shape)[1]
-            canonical_topic = canonical_topic_names[best_match_index]
-            last_occurrence[canonical_topic] = i
-            
+        turn_lower = turn['content'].lower()
+        for canonical_topic, chunks in topic_mapping.items():
+            if any(chunk.lower() in turn_lower for chunk in chunks):
+                last_occurrence[canonical_topic] = i
     sorted_by_recency = sorted(last_occurrence.items(), key=lambda item: item[1], reverse=True)
     recency_heatmap = {topic: rank + 1 for rank, (topic, index) in enumerate(sorted_by_recency[:15])}
 
-    # --- 4. Build the Final Conversation State ---
-    focus_topics = list(categorized_raw_topics["neutral"] | categorized_raw_topics["sexual"] | categorized_raw_topics["intimacy"])
-    top_20_topics = [t for t, c in Counter(focus_topics).most_common(20)]
-    inside_jokes = [chunk.text for chunk in doc.noun_chunks if chunk.root.pos_ == 'PROPN' and len(chunk.text) > 2 and conversation_history_str.count(chunk.text) > 1]
+    # --- 5. Build the Final Conversation State ---
+    all_categorized_topics = list(categorized_raw_topics["neutral"] | categorized_raw_topics["sexual"] | categorized_raw_topics["intimacy"])
+    
+    # *** THE FIX IS HERE ***
+    # The variable `all_topics` is now correctly named `all_categorized_topics`.
+    top_20_topics = [t for t, c in Counter(all_categorized_topics).most_common(20)]
+
+    inside_jokes = _detect_inside_jokes(doc)
 
     conversation_state = {
         "topics": {
@@ -146,15 +163,15 @@ def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str,
             "sensitive": [t for t in categorized_raw_topics["sensitive"] if t in top_20_topics],
             "fetish": [t for t in categorized_raw_topics["fetish"] if t in top_20_topics],
             "sexual": [t for t in categorized_raw_topics["sexual"] if t in top_20_topics],
-            "inside_jokes": list(set(inside_jokes))
+            "inside_jokes": inside_jokes
         },
-        "recent_topics": list(recency_heatmap.keys()),
+        "recent_topics": [topic for topic, rank in recency_heatmap.items()],
         "topic_occurrence_heatmap": occurrence_heatmap,
         "topic_recency_heatmap": recency_heatmap,
         "topic_mapping": {k: v for k, v in topic_mapping.items() if v}
     }
 
-    # --- 5. Schema-Based Tagging (for Structure) ---
+    # --- 6. Schema-Based Tagging (for Structure) ---
     detected_tags = { "detected_phases": set(), "detected_tones": set(), "detected_intents": set() }
     for category, rules in ANALYSIS_SCHEMA.items():
         for tag_name, patterns in rules.items():
@@ -164,7 +181,7 @@ def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str,
     analysis = {k: list(v) for k, v in detected_tags.items()}
     analysis["conversation_state"] = conversation_state
 
-    # --- 6. Quantitative & Sentiment Analysis ---
+    # --- 7. Quantitative & Sentiment Analysis ---
     sentiment_scores = sentiment_analyzer.polarity_scores(conversation_history_str)
     compound_score = sentiment_scores['compound']
     sentiment = "neutral"
