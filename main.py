@@ -10,6 +10,7 @@ import assembler
 from preprocessor import preprocess_conversation
 from analysis_engine import run_full_analysis
 from model import AnalyzePayload
+from planner import compute_geo_time_features
 from suggestion_engine import generate_suggestions
 
 app = FastAPI(
@@ -43,7 +44,12 @@ async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
         payload.scraped_data.their_profile,
         processed_turns
     )
-    analysis_results = await analysis_task
+    geo_task = asyncio.to_thread(
+        compute_geo_time_features,
+        payload.ui_settings.my_location,
+        payload.scraped_data.their_location_string
+    )
+    analysis_results, geo_features = await asyncio.gather(analysis_task, geo_task)
 
     # --- Generate final suggestions ---
     final_suggestions = await asyncio.to_thread(
@@ -60,7 +66,7 @@ async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
         payload=payload_dict,
         analysis_data=analysis_results,
         suggestions=final_suggestions,
-        geo=None # Geo features removed
+        geo=geo_features
     )
     with open('analysis.json', 'a+') as f:
         f.write(json.dumps(final_json, indent=4)+'\n,\n')

@@ -16,7 +16,7 @@ def mean_pooling(model_output, attention_mask):
     return sum_embeddings / sum_mask
 
 class Embedder:
-    def __init__(self, model_name: str = 'BAAI/bge-large-en', db_path: str = "app/data/embedding_cache.sqlite"):
+    def __init__(self, model_name: str = 'BAAI/bge-large-en-v1.5', db_path: str = "app/data/embedding_cache.sqlite"):
         self.model_name = model_name
         self.db_path = db_path
         self.model_dir = Path("app/models")

@@ -1,4 +1,4 @@
-# In assembler.py
+# In app/svc/assembler.py
 
 from typing import Dict, Any, List
 
@@ -6,7 +6,7 @@ def build_final_json(
     payload: Dict[str, Any],
     analysis_data: Dict[str, Any],
     suggestions: Dict[str, List[str]],
-    geo: Dict[str, Any] # This is now always None, but kept for compatibility in main.py
+    geo: Dict[str, Any]
 ) -> Dict[str, Any]:
     
     context = analysis_data.get("contextual_features", {})
@@ -29,6 +29,21 @@ def build_final_json(
         "detected_intents": context.get("detected_intents", []),
     }
 
+    geo_output = {
+        "userLocation": {
+            "City": geo.get("my_location", {}).get("city_state", "N/A"), "Current Time": geo.get("my_location", {}).get("current_time", "N/A"),
+            "Time of Day": geo.get("my_location", {}).get("time_of_day", "N/A"), "Time Zone": geo.get("my_location", {}).get("timezone", "N/A"),
+            "Country": geo.get("my_location", {}).get("country", "N/A"),
+        },
+        "matchLocation": {
+            "City": geo.get("their_location", {}).get("city_state", "N/A"), "Current Time": geo.get("their_location", {}).get("current_time", "N/A"),
+            "Time of Day": geo.get("their_location", {}).get("time_of_day", "N/A"), "Time Zone": geo.get("their_location", {}).get("timezone", "N/A"),
+            "Country": geo.get("their_location", {}).get("country", "N/A"),
+        },
+        "Time Difference": f"{geo.get('time_difference_hours', 'N/A')} hours",
+        "Distance": f"{geo.get('distance_km', 'N/A')} km"
+    }
+
     # Simplified analysis object
     final_analysis_object = {
         "sentiment": context.get("sentiment_analysis", {}).get("overall", "neutral"),
@@ -40,9 +55,10 @@ def build_final_json(
     final_output = {
         "matchId": payload.get("matchId"),
         "conversation_state": conversation_state,
+        "geo": geo_output,
         "suggestions": suggestions,
         "analysis": final_analysis_object,
-        "pipeline": "modular_semantic_v1"
+        "pipeline": "modular_semantic_v1.5" # Updated pipeline name
     }
 
     return final_output

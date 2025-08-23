@@ -5,7 +5,7 @@ import yake
 from typing import List, Dict, Any
 from collections import defaultdict
 from rapidfuzz import fuzz
-from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics.pairwise import cosine_similarity, cosine_distances
 
 from embedder import embedder_service
 
@@ -121,8 +121,9 @@ def identify_topics(conversation_turns: List[Dict[str, Any]]) -> List[Dict[str, 
     valid_processed_texts = list(text_to_turn_map.keys())
     embeddings = embedder_service.encode_cached(valid_processed_texts)
 
-    clusterer = hdbscan.HDBSCAN(min_cluster_size=2, min_samples=1, metric='cosine', cluster_selection_method='eom', allow_single_cluster=True)
-    cluster_labels = clusterer.fit_predict(embeddings)
+    distance_matrix = cosine_distances(embeddings)
+    clusterer = hdbscan.HDBSCAN(min_cluster_size=2, min_samples=1, metric='precomputed', cluster_selection_method='eom', allow_single_cluster=True)
+    cluster_labels = clusterer.fit_predict(distance_matrix)
 
     # Group texts by cluster label
     clustered_texts = defaultdict(list)
