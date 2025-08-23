@@ -18,7 +18,13 @@ class UISettings(BaseModel):
     my_location: str = Field(..., alias="myLocation")
     my_profile: str = Field(..., alias="myProfile")
     local_model_name: Optional[str] = Field(None, alias="local_model_name")
+class Feedback(BaseModel):
+    current_topic: str
+    chosen_suggestion: str
+    action: Literal["chosen", "dismissed"]
+
 class AnalyzePayload(BaseModel):
     match_id: str = Field(..., alias="matchId")
     scraped_data: ScrapedData
     ui_settings: UISettings
+    feedback: Optional[List[Feedback]] = None

@@ -1,59 +1,75 @@
 # In preprocessor.py
 import re
-import nltk
-from nltk.corpus import stopwords
-from nltk.stem import WordNetLemmatizer
-from nltk.tokenize import word_tokenize
+import spacy
 
-def download_nltk_data():
-    """Downloads required NLTK data if not already present."""
+# Attempt to import the spaCy model instance from analysis_engine
+try:
+    from analysis_engine import nlp
+    print("Preprocessor: Successfully imported 'nlp' model from analysis_engine.")
+except (ImportError, ModuleNotFoundError):
+    print("Preprocessor: Could not import 'nlp' model. Loading a new spaCy model.")
     try:
-        nltk.data.find('tokenizers/punkt')
-    except nltk.downloader.DownloadError:
-        nltk.download('punkt')
-    try:
-        nltk.data.find('corpora/stopwords')
-    except nltk.downloader.DownloadError:
-        nltk.download('stopwords')
-    try:
-        nltk.data.find('corpora/wordnet')
-    except nltk.downloader.DownloadError:
-        nltk.download('wordnet')
-
-# Call the download function once when the module is loaded.
-download_nltk_data()
+        nlp = spacy.load("en_core_web_sm")
+    except OSError:
+        print("Spacy model 'en_core_web_sm' not found. Please run: python -m spacy download en_core_web_sm")
+        nlp = None
 
 # Custom stopwords, including common chat slang and conversational filler
-CUSTOM_STOPWORDS = set(stopwords.words('english')) | {
-    'lol', 'haha', 'hehe', 'ok', 'okay', 'yeah', 'yes', 'no', 'nah',
-    'im', 'u', 'r', 'ur', 'y', 'tho', 'btw', 'omg', 'idk', 'tbh', 'imo',
-    'hey', 'hi', 'hello', 'sup', 'yo',
-    'like', 'actually', 'basically', 'really', 'gonna', 'wanna'
+CUSTOM_STOPWORDS = {
+    'lol', 'haha', 'hehe', 'ok', 'okay', 'yeah', 'yes', 'no', 'nah', 'ya', 'yep', 'nope',
+    'im', 'u', 'r', 'ur', 'y', 'tho', 'btw', 'omg', 'idk', 'tbh', 'imo', 'irl', 'fr',
+    'hey', 'hi', 'hello', 'sup', 'yo', 'wassup',
+    'like', 'actually', 'basically', 'really', 'gonna', 'wanna', 'gotta', 'kinda',
+    'um', 'uh', 'er', 'hmm', 'hmmm',
+    'a', 'an', 'the', 'is', 'in', 'at', 'on', 'for', 'to', 'of'
 }
 
-lemmatizer = WordNetLemmatizer()
+# A mapping of common emojis to text for normalization
+EMOJI_NORMALIZATION_MAP = {
+    '❤️': 'love', '❤': 'love', '😍': 'love eyes', '😂': 'laughing tears', '😭': 'crying',
+    '😊': 'smiling', '😉': 'wink', '😘': 'kiss', '👍': 'thumbs up', '🔥': 'fire', '💯': 'hundred',
+    '🤔': 'thinking', '🤷': 'shrug', '🤷‍♀️': 'shrug', '🤷‍♂️': 'shrug'
+}
 
-def preprocess_text(text: str) -> str:
+def normalize_emojis(text: str) -> str:
     """
-    Cleans, tokenizes, removes stopwords, and lemmatizes a string of text.
-    Returns a cleaned string.
+    Replaces common emojis in a string with their text representations.
     """
-    if not isinstance(text, str):
+    for emoji, replacement in EMOJI_NORMALIZATION_MAP.items():
+        text = text.replace(emoji, f" {replacement} ")
+    return text
+
+def preprocess_text(text: str, normalize_emojis_flag: bool = False) -> str:
+    """
+    Cleans, tokenizes, removes stopwords, and lemmatizes a string of text using spaCy.
+    This version preserves emojis by default and can optionally normalize them to text.
+
+    Args:
+        text (str): The input text.
+        normalize_emojis_flag (bool): If True, common emojis are converted to text.
+
+    Returns:
+        str: A cleaned string.
+    """
+    if not isinstance(text, str) or not nlp:
         return ""
 
-    # Remove URLs, mentions, and non-alphanumeric characters (except spaces)
+    # Optional: Normalize emojis before other processing
+    if normalize_emojis_flag:
+        text = normalize_emojis(text)
+
+    # Remove URLs and mentions
     text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
     text = re.sub(r'\@\w+', '', text)
-    text = re.sub(r'[^a-zA-Z\s]', '', text)
 
-    # Tokenize and lowercase
-    tokens = word_tokenize(text.lower())
+    # Process the text with spaCy
+    doc = nlp(text.lower())
 
-    # Remove stopwords and lemmatize
+    # Lemmatize and remove stopwords and punctuation
     lemmatized_tokens = [
-        lemmatizer.lemmatize(word)
-        for word in tokens
-        if word not in CUSTOM_STOPWORDS and len(word) > 1
+        token.lemma_
+        for token in doc
+        if not token.is_stop and not token.is_punct and token.lemma_ not in CUSTOM_STOPWORDS and len(token.lemma_) > 1
     ]
 
     return " ".join(lemmatized_tokens)
