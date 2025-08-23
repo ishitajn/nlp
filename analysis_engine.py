@@ -17,7 +17,7 @@ def run_full_analysis(
     """
     
     # 1. Identify raw topic clusters
-    topic_clusters = identify_topics(processed_turns)
+    topic_clusters = identify_topics(processed_turns, their_profile)
     
     # 2. Extract contextual features (sentiment, recency, etc.)
     contextual_features = extract_contextual_features(

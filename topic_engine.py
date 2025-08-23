@@ -81,11 +81,42 @@ def _deduplicate_and_merge_topics(
 
     return merged_topics
 
-def identify_topics(conversation_turns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def identify_topics(conversation_turns: List[Dict[str, Any]], their_profile: str = "") -> List[Dict[str, Any]]:
     """
     Runs the full topic analysis pipeline.
     """
+    kw_extractor = yake.KeywordExtractor(lan="en", n=3, dedupLim=0.9, top=5, features=None)
+    initial_topics = []
+
+    # --- Process Profile Topics ---
+    if their_profile:
+        processed_profile = preprocess_text(their_profile)
+        profile_keywords = [kw for kw, score in kw_extractor.extract_keywords(processed_profile)]
+        if profile_keywords:
+            profile_embedding = embedder_service.encode_cached([processed_profile])[0]
+            initial_topics.append({
+                "topic_id": -2, # Special ID for profile topics
+                "keywords": profile_keywords,
+                "messages": ["From Profile"],
+                "message_turns": [], # No turns from conversation
+                "centroid": profile_embedding
+            })
+
+
     if not conversation_turns:
+        # If only profile topics exist, finalize and return them
+        if initial_topics:
+            topic = initial_topics[0]
+            canonical_name = _get_canonical_name(topic["keywords"], topic.get("centroid"))
+            return [{
+                "canonical_name": canonical_name,
+                "keywords": topic["keywords"],
+                "category": "Uncategorized",
+                "message_count": 1, # Represents the profile itself
+                "messages": topic["messages"],
+                "message_turns": topic["message_turns"],
+                "centroid": topic.get("centroid")
+            }]
         return []
 
     # --- 1. Preprocess text for each turn ---
@@ -118,9 +149,6 @@ def identify_topics(conversation_turns: List[Dict[str, Any]]) -> List[Dict[str, 
         clustered_texts[label].append(valid_processed_texts[i])
 
     # Extract keywords and form initial topics
-    kw_extractor = yake.KeywordExtractor(lan="en", n=3, dedupLim=0.9, top=5, features=None)
-    initial_topics = []
-
     # Get the embeddings for the texts that were actually clustered
     clustered_indices = np.where(cluster_labels != -1)[0]
     clustered_embeddings = embeddings[clustered_indices]

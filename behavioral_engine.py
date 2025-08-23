@@ -1,4 +1,5 @@
 # In behavioral_engine.py
+import re
 import numpy as np
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
@@ -11,7 +12,7 @@ from semantic_concepts import CONCEPT_EMBEDDINGS
 # Thresholds for deciding if a message matches a semantic concept.
 SIMILARITY_THRESHOLDS = {
     "GREETING": 0.70,
-    "ASKING_A_QUESTION": 0.65,
+    "ASKING_A_QUESTION": 0.60, # Lowered from 0.65
     "FLIRTATION": 0.60,
     "TIME_REFERENCE": 0.60,
     "LOCATION_REFERENCE": 0.60,
@@ -25,20 +26,31 @@ def _parse_timestamp(ts_str: Optional[str]) -> Optional[datetime]:
         return None
     if ts_str.endswith('Z'):
         ts_str = ts_str[:-1] + '+00:00'
-    formats_to_try = ["%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S"]
+    formats_to_try = ["%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]
     for fmt in formats_to_try:
         try:
-            return datetime.strptime(ts_str, fmt)
+            dt = datetime.strptime(ts_str, fmt)
+            # If no timezone, assume UTC
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
         except (ValueError, TypeError):
             continue
     try:
-        return datetime.fromisoformat(ts_str)
+        dt = datetime.fromisoformat(ts_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except (ValueError, TypeError):
         pass
     return None
 
-def _check_semantic_similarity(text_embedding: np.ndarray, concept_name: str) -> bool:
+def _check_semantic_similarity(text: str, text_embedding: np.ndarray, concept_name: str) -> bool:
     """Checks if a text embedding is similar to a pre-computed concept embedding."""
+    # Quick check for question mark
+    if concept_name == "ASKING_A_QUESTION" and text.strip().endswith('?'):
+        return True
+
     concept_embedding = CONCEPT_EMBEDDINGS.get(concept_name)
     if concept_embedding is None or text_embedding is None or not hasattr(text_embedding, 'reshape'):
         return False
@@ -76,17 +88,22 @@ def analyze_conversation_behavior(
             break
 
     # --- Basic Last Message Info ---
+    last_message_from = last_turn.get('role') if last_turn else None
+    if last_message_from == 'assistant':
+        last_message_from = 'match'
+
     analysis = {
         "last_message_from_user": last_user_turn.get('content') if last_user_turn else None,
         "last_message_from_match": last_match_turn.get('content') if last_match_turn else None,
-        "Last_message_from": last_turn.get('role') if last_turn else None,
+        "Last_message_from": last_message_from,
     }
 
     # --- Semantic Analysis of Last Match Message ---
     last_match_embedding = last_match_turn.get('embedding') if last_match_turn else None
-    analysis['match_last_message_has_question'] = _check_semantic_similarity(last_match_embedding, "ASKING_A_QUESTION")
-    analysis['Match_last_message_geo_context'] = _check_semantic_similarity(last_match_embedding, "LOCATION_REFERENCE") or \
-                                                 _check_semantic_similarity(last_match_embedding, "TIME_REFERENCE")
+    last_match_content = last_match_turn.get('content', '') if last_match_turn else ''
+    analysis['match_last_message_has_question'] = _check_semantic_similarity(last_match_content, last_match_embedding, "ASKING_A_QUESTION")
+    analysis['Match_last_message_geo_context'] = _check_semantic_similarity(last_match_content, last_match_embedding, "LOCATION_REFERENCE") or \
+                                                 _check_semantic_similarity(last_match_content, last_match_embedding, "TIME_REFERENCE")
 
     # --- Time-based Analysis (Remains Rule-Based as per assumption) ---
     now = datetime.now(timezone.utc)
@@ -100,13 +117,17 @@ def analyze_conversation_behavior(
     match_active_recently = False
 
     for turn in conversation_turns:
-        turn_time = _parse_timestamp(turn.get('timestamp'))
+        # Use 'date' field first, then 'timestamp'
+        turn_time = _parse_timestamp(turn.get('date') or turn.get('timestamp'))
         if not turn_time: continue
 
         role = turn.get('role', 'assistant').lower()
+        content = turn.get('content', '')
+        embedding = turn.get('embedding')
+
         if role == 'user':
             if turn_time > one_day_ago: user_active_recently = True
-            if turn_time > two_days_ago and _check_semantic_similarity(turn.get('embedding'), "GREETING"):
+            if turn_time > two_days_ago and _check_semantic_similarity(content, embedding, "GREETING"):
                 analysis['last_user_greeted'] = True
         elif role == 'assistant':
             if turn_time > one_day_ago: match_active_recently = True
@@ -116,7 +137,7 @@ def analyze_conversation_behavior(
     flags['user_active_recently'] = user_active_recently
     flags['match_active_recently'] = match_active_recently
 
-    last_turn_time = _parse_timestamp(last_turn.get('timestamp')) if last_turn else None
+    last_turn_time = _parse_timestamp(last_turn.get('date') or last_turn.get('timestamp')) if last_turn else None
     if not last_turn_time: flags['Last_message_day'] = "Unknown"
     elif len(conversation_turns) < 5: flags['Last_message_day'] = "New Conversation"
     elif last_turn_time > two_days_ago: flags['Last_message_day'] = "Active Conversation"
@@ -128,14 +149,15 @@ def analyze_conversation_behavior(
     flags['last_topic_category'] = last_topic.get('category', 'N/A')
 
     last_turn_embedding = last_turn.get('embedding') if last_turn else None
-    flags['contains_fallback_keywords'] = ["disengagement"] if _check_semantic_similarity(last_turn_embedding, "DISENGAGEMENT") else []
-    flags['greeting_detected'] = _check_semantic_similarity(last_turn_embedding, "GREETING")
-    flags['flirtation_indicator'] = _check_semantic_similarity(last_turn_embedding, "FLIRTATION")
-    flags['time_reference_detected'] = _check_semantic_similarity(last_turn_embedding, "TIME_REFERENCE")
-    flags['location_reference_detected'] = _check_semantic_similarity(last_turn_embedding, "LOCATION_REFERENCE")
+    last_turn_content = last_turn.get('content', '') if last_turn else ''
+    flags['contains_fallback_keywords'] = ["disengagement"] if _check_semantic_similarity(last_turn_content, last_turn_embedding, "DISENGAGEMENT") else []
+    flags['greeting_detected'] = _check_semantic_similarity(last_turn_content, last_turn_embedding, "GREETING")
+    flags['flirtation_indicator'] = _check_semantic_similarity(last_turn_content, last_turn_embedding, "FLIRTATION")
+    flags['time_reference_detected'] = _check_semantic_similarity(last_turn_content, last_turn_embedding, "TIME_REFERENCE")
+    flags['location_reference_detected'] = _check_semantic_similarity(last_turn_content, last_turn_embedding, "LOCATION_REFERENCE")
 
     recent_turns = conversation_turns[-5:]
-    question_count = sum(1 for t in recent_turns if _check_semantic_similarity(t.get('embedding'), "ASKING_A_QUESTION"))
+    question_count = sum(1 for t in recent_turns if _check_semantic_similarity(t.get('content', ''), t.get('embedding'), "ASKING_A_QUESTION"))
     if question_count > 1: flags['recent_engagement_score'] = "high"
     elif question_count > 0: flags['recent_engagement_score'] = "medium"
     else: flags['recent_engagement_score'] = "low"
