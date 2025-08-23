@@ -11,13 +11,17 @@ from topicbank.rank import rerank
 from topicbank.transition import transition_score
 from topicbank.tagging import tag_topics
 
+from sentence_transformers.util import cos_sim
+
 def suggest(
     convo_texts: list,
     profile_tags: set = set(),
     used_ids: set = set(),
     k: int = 100, # Increased k to get more candidates
     allow_explicit: bool = False,
-    index_dir: str = "data/index"
+    index_dir: str = "data/index",
+    sentence_model = None,
+    focus_topics: list = []
 ):
     """
     Retrieves and re-ranks topic suggestions based on conversation context.
@@ -50,7 +54,34 @@ def suggest(
         recent_tags.update(tag_topics(t))
 
     # Re-rank the retrieved candidates
-    ranked = rerank(pairs, meta, convo_texts, used_ids, profile_tags, recent_tags)
+    enriched_candidates = []
+    if sentence_model and convo_texts:
+        last_turn_vec = sentence_model.encode([convo_texts[-1]])
+        focus_topics_vecs = sentence_model.encode(focus_topics) if focus_topics else []
+
+        for idx, sim in pairs:
+            candidate_vec = vecs[idx:idx+1]
+
+            immediate_relevance = cos_sim(last_turn_vec, candidate_vec).item()
+
+            anti_repetition = 0
+            if len(focus_topics_vecs) > 0:
+                max_rep_sim = cos_sim(candidate_vec, focus_topics_vecs).max().item()
+                if max_rep_sim > 0.8:
+                    anti_repetition = -0.3
+
+            enriched_candidates.append({
+                "idx": idx, "sim": sim,
+                "immediate_relevance": immediate_relevance,
+                "anti_repetition": anti_repetition
+            })
+    else:
+        enriched_candidates = [
+            {"idx": idx, "sim": sim, "immediate_relevance": 0, "anti_repetition": 0}
+            for idx, sim in pairs
+        ]
+
+    ranked = rerank(enriched_candidates, meta, convo_texts, used_ids, profile_tags, recent_tags)
 
     # Filter and format the final output, grouping by category
     categorized_out = {}

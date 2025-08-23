@@ -24,10 +24,15 @@ def tone_mode(text):
 from .transition import transition_score
 
 def rerank(candidates, meta, recent_texts, used_ids, profile_tags, recent_tags):
-    # candidates: list[(idx, cosine_sim)]
+    # candidates: list of enriched dictionaries
     mode = tone_mode(" ".join(recent_texts[-3:]))
     scored = []
-    for idx, sim in candidates:
+    for cand in candidates:
+        idx = cand["idx"]
+        sim = cand["sim"]
+        immediate_relevance = cand["immediate_relevance"]
+        anti_repetition = cand["anti_repetition"]
+
         m = meta[idx]
         tags = set(m.get("tags", []))
 
@@ -36,8 +41,8 @@ def rerank(candidates, meta, recent_texts, used_ids, profile_tags, recent_tags):
         tone = 0.15 if (mode == "playful" and m["category"] in ["dating", "sexual", "romance", "playful"]) else 0.0
         trans = transition_score(recent_tags, tags)
 
-        # Adjusted weights to prioritize profile and transition
-        final = 0.4 * sim + novelty + prof + tone + trans
+        # New formula with all features
+        final = (0.3 * sim) + (0.2 * immediate_relevance) + novelty + prof + tone + trans + anti_repetition
         scored.append((final, idx))
 
     scored.sort(reverse=True)

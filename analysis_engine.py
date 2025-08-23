@@ -176,11 +176,17 @@ def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str,
     custom_topics = {doc.vocab.strings[match_id] for match_id, start, end in matches}
 
     general_topics = set()
-    stopwords = {'i', 'you', 'me', 'my', 'it', 'that', 'a', 'the', 'what', 'wbu', 'hmmmm', 'lol', 'haha', 'the first thing', 'a bit'}
+    # Using spaCy's built-in stop words and lemmatization for normalization
     for chunk in doc.noun_chunks:
-        clean_chunk = chunk.text.lower().strip()
-        if clean_chunk not in stopwords and len(clean_chunk) > 3 and len(clean_chunk.split()) < 5:
-            general_topics.add(clean_chunk)
+        normalized_tokens = [
+            token.lemma_.lower() for token in chunk
+            if not token.is_stop and not token.is_punct and not token.is_space
+        ]
+        if normalized_tokens:
+            normalized_topic = " ".join(normalized_tokens)
+            # Add some length constraints to avoid overly generic or noisy topics
+            if len(normalized_topic) > 3 and len(normalized_topic.split()) < 5:
+                general_topics.add(normalized_topic)
             
     all_topics = list(custom_topics) + [t for t in general_topics if t not in custom_topics]
     focus_topics = all_topics[:15]
@@ -246,7 +252,9 @@ def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str,
     suggestions = suggest(
         convo_texts=convo_texts,
         profile_tags=profile_tags,
-        used_ids=used_ids_set
+        used_ids=used_ids_set,
+        sentence_model=sentence_model,
+        focus_topics=focus_topics
     )
 
     # --- 6. Assemble Final Output ---
