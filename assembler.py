@@ -47,7 +47,8 @@ def build_final_json(
             "Country": geo.get("their_location", {}).get("country", "N/A"),
         },
         "Time Difference": f"{geo.get('time_difference_hours', 'N/A')} hours",
-        "Distance": f"{geo.get('distance_km', 'N/A')} km"
+        "Distance": f"{geo.get('distance_km', 'N/A')} km",
+        "is_virtual": geo.get("is_virtual", False)
     } if geo else None
 
     # --- Build analysis object ---

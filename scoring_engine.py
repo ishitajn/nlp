@@ -46,6 +46,7 @@ def score_and_categorize_topics(
         return dict(final_categorized_topics)
 
     max_cluster_size = max(len(c.get("messages", [])) for c in topic_clusters) or 1
+    keyword_embedding_cache = {}
 
     # Pre-calculate cluster centroids for efficiency
     for cluster in topic_clusters:
@@ -79,9 +80,12 @@ def score_and_categorize_topics(
 
         # Semantic similarity score for 'sexual'
         if keywords_str:
-            topic_embedding = embedder_service.encode_cached([keywords_str])[0]
+            if keywords_str not in keyword_embedding_cache:
+                keyword_embedding_cache[keywords_str] = embedder_service.encode_cached([keywords_str])[0]
+            topic_embedding = keyword_embedding_cache[keywords_str]
+
             flirt_embedding = CONCEPT_EMBEDDINGS.get("FLIRTATION")
-            if flirt_embedding is not None:
+            if flirt_embedding is not None and topic_embedding is not None:
                 sexual_similarity = cosine_similarity(topic_embedding.reshape(1, -1), flirt_embedding.reshape(1, -1))[0][0]
                 scores['sexual'] = sexual_similarity
 

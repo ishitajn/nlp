@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException
 from starlette.middleware.cors import CORSMiddleware
 
 import assembler
-from preprocessor import preprocess_conversation
+import normalizer
 from analysis_engine import run_full_analysis
 from model import AnalyzePayload
 from planner import compute_geo_time_features
@@ -31,10 +31,10 @@ app.add_middleware(
 async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
     payload_dict = payload.dict(by_alias=True)
     
-    processed_turns = await asyncio.to_thread(
-        preprocess_conversation, payload_dict["scraped_data"]["conversationHistory"]
+    cleaned_turns = await asyncio.to_thread(
+        normalizer.clean_and_truncate, payload_dict["scraped_data"]["conversationHistory"]
     )
-    if not processed_turns:
+    if not cleaned_turns:
         raise HTTPException(status_code=400, detail="Conversation history is empty.")
 
     # --- Run ALL deterministic analysis in parallel ---
@@ -42,7 +42,7 @@ async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
         run_full_analysis,
         payload.ui_settings.my_profile,
         payload.scraped_data.their_profile,
-        processed_turns
+        cleaned_turns  # This was the missing piece
     )
     geo_task = asyncio.to_thread(
         compute_geo_time_features,
@@ -54,9 +54,8 @@ async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
     # --- Generate final suggestions ---
     final_suggestions = await asyncio.to_thread(
         generate_suggestions,
-        analysis_data=analysis_results["contextual_features"],
-        conversation_turns=processed_turns,
-        identified_topics=analysis_results["identified_topics"],
+        analysis_data=analysis_results,
+        conversation_turns=cleaned_turns,
         feedback=payload.feedback
     )
 

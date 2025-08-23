@@ -14,6 +14,7 @@ from model import Feedback
 
 # Constants
 GRAPH_DATA_PATH = "app/data/transition_graph.json"
+METADATA_PATH = "app/data/topic_metadata.json"
 
 # ==============================================================================
 # == THE DEFINITIVE, UNCENSORED & EXPANDED SUGGESTION BANK                    ==
@@ -75,29 +76,42 @@ class AdvancedSuggestionEngine:
         self.topics = identified_topics
         self.feedback = feedback or []
         self.graph_path = GRAPH_DATA_PATH
+        self.metadata_path = METADATA_PATH
         self.sentiment_analyzer = SentimentIntensityAnalyzer()
 
         # Learning Pipeline
-        self.transition_graph = self._load_persistent_graph()
+        self.transition_graph, self.topic_metadata = self._load_persistent_data()
         session_graph = self._build_transition_graph_from_session()
         self._merge_graphs(self.transition_graph, session_graph)
         self._apply_feedback()
-        self._save_persistent_graph()
+        self._update_and_save_persistent_data()
 
-    def _load_persistent_graph(self) -> Dict[str, Dict[str, float]]:
+    def _load_persistent_data(self) -> (Dict, Dict):
+        graph = defaultdict(lambda: defaultdict(float))
         if os.path.exists(self.graph_path):
             with open(self.graph_path, 'r') as f:
                 loaded_graph = json.load(f)
-                graph = defaultdict(lambda: defaultdict(float))
                 for from_topic, to_topics in loaded_graph.items():
                     graph[from_topic] = defaultdict(float, to_topics)
-                return graph
-        return defaultdict(lambda: defaultdict(float))
 
-    def _save_persistent_graph(self):
+        metadata = {}
+        if os.path.exists(self.metadata_path):
+            with open(self.metadata_path, 'r') as f:
+                metadata = json.load(f)
+
+        return graph, metadata
+
+    def _update_and_save_persistent_data(self):
+        # Update metadata with topics from the current session
+        for topic in self.topics:
+            self.topic_metadata[topic["canonical_name"]] = topic["category"]
+
+        # Save both files
         os.makedirs(os.path.dirname(self.graph_path), exist_ok=True)
         with open(self.graph_path, 'w') as f:
             json.dump(self.transition_graph, f, indent=4)
+        with open(self.metadata_path, 'w') as f:
+            json.dump(self.topic_metadata, f, indent=4)
 
     def _merge_graphs(self, main_graph: Dict, session_graph: Dict):
         for from_topic, to_topics in session_graph.items():
@@ -136,11 +150,28 @@ class AdvancedSuggestionEngine:
             if not from_topic or not to_topic or from_topic == to_topic:
                 continue
             
-            sentiment_score = self.sentiment_analyzer.polarity_scores(self.turns[i]['content'])['compound']
-            sentiment_weight = 1.0 + sentiment_score
+            # --- Enhanced Weighting ---
+            from_turn = self.turns[i]
+            to_turn = self.turns[i+1]
+
+            # 1. Recency Weight
             recency_weight = 0.95 ** (num_turns - 1 - i)
 
-            graph[from_topic][to_topic] += 1.0 * sentiment_weight * recency_weight
+            # 2. Sentiment Weight & Alignment
+            from_sentiment = self.sentiment_analyzer.polarity_scores(from_turn['content'])['compound']
+            to_sentiment = self.sentiment_analyzer.polarity_scores(to_turn['content'])['compound']
+
+            sentiment_weight = 1.0 + from_sentiment
+
+            # Reward transitions that maintain a consistent emotional tone
+            sentiment_alignment = 1.2 if (from_sentiment > 0 and to_sentiment > 0) or \
+                                        (from_sentiment < 0 and to_sentiment < 0) else 0.8
+
+            # (Phase alignment would be added here if per-turn phase data was available)
+
+            adjusted_score = 1.0 * recency_weight * sentiment_weight * sentiment_alignment
+            graph[from_topic][to_topic] += adjusted_score
+
         return graph
 
     def get_suggestions(self) -> Dict[str, List[str]]:
@@ -211,15 +242,14 @@ class AdvancedSuggestionEngine:
                 if len(category_suggestions) >= 5: break
 
                 topic_details = topic_details_map.get(canonical_topic_name)
-                if not topic_details:
-                    if not self.topics: continue
-                    try:
-                        sims = cosine_similarity(embedder_service.encode_cached([canonical_topic_name]), embedder_service.encode_cached([t['canonical_name'] for t in self.topics]))[0]
-                        topic_details = self.topics[np.argmax(sims)]
-                    except Exception:
-                        continue # Skip if embedding fails
 
-                topic_category = topic_details.get("category", "Uncategorized")
+                # If topic is not from current convo, get its category from the metadata cache
+                if not topic_details:
+                    topic_category = self.topic_metadata.get(canonical_topic_name, "Uncategorized")
+                    # We don't have keywords for these old topics, so we'll use the name itself
+                    topic_details = {"category": topic_category, "keywords": [canonical_topic_name]}
+                else:
+                    topic_category = topic_details.get("category", "Uncategorized")
                 strategies = SUGGESTION_STRATEGY_MAP.get(topic_category, {}).get(category, [])
                 if not strategies: continue
 

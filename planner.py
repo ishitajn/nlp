@@ -97,4 +97,14 @@ def compute_geo_time_features(my_location_str: str, their_location_str: str) -> 
             except pytz.UnknownTimeZoneError:
                 geo_features["time_difference_hours"] = None
 
+    # --- Add is_virtual flag ---
+    is_virtual = False
+    dist = geo_features.get("distance_km")
+    time_diff = geo_features.get("time_difference_hours")
+    if dist is not None and dist > 161: # 100 miles is ~161 km
+        is_virtual = True
+    if time_diff is not None and abs(time_diff) > 2:
+        is_virtual = True
+    geo_features["is_virtual"] = is_virtual
+
     return geo_features

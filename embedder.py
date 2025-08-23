@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List
 from sentence_transformers import SentenceTransformer
 from optimum.onnxruntime import ORTModelForFeatureExtraction
+from transformers import AutoTokenizer
 
 def mean_pooling(model_output, attention_mask):
     token_embeddings = model_output[0]
@@ -42,7 +43,7 @@ class Embedder:
 
         print("Loading ONNX model for inference...")
         self.model = ORTModelForFeatureExtraction.from_pretrained(self.onnx_path)
-        self.tokenizer = SentenceTransformer(self.model_name).tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(self.onnx_path)
 
     def _init_db(self):
         with sqlite3.connect(self.db_path) as conn:
