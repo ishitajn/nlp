@@ -109,7 +109,9 @@ def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str,
     # --- New: Suggestion Generation ---
     topic_suggestions = generate_topic_suggestions(
         discovered_topics=discovered_topics,
-        existing_keyphrases=all_keyphrases
+        existing_keyphrases=all_keyphrases,
+        my_profile=my_profile,
+        their_profile=their_profile
     )
     
     # --- 1. Concept-Centric Semantic Search ---

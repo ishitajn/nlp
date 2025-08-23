@@ -4,98 +4,77 @@ from typing import List, Dict
 from sklearn.metrics.pairwise import cosine_similarity
 
 from embedder import embedder_service
+# Important: We need to import the keyphrase extractor and the nlp model from the other module
+try:
+    from topic_discoverer import _extract_keyphrases, nlp
+except ImportError:
+    # Handle case where nlp might not be initialized in time or other issues.
+    nlp = None
+    _extract_keyphrases = None
 
-# A predefined vocabulary of potential conversation topics.
-# This list can be expanded or refined.
-SUGGESTION_VOCABULARY = [
-    # Hobbies & Interests
-    "playing any sports", "favorite music genres", "a book you've read recently",
-    "favorite movies or TV shows", "art or museums", "cooking or baking",
-    "playing video games", "gardening", "photography", "learning a new skill",
-    "playing a musical instrument",
-
-    # Travel
-    "dream travel destinations", "most memorable trip", "weekend getaways",
-    "beaches or mountains", "cultural experiences while traveling",
-
-    # Career & Ambition
-    "your career goals", "what you love about your job", "work-life balance",
-    "a project you're proud of",
-
-    # Personal Growth & Values
-    "what you're passionate about", "personal values", "learning from challenges",
-    "what makes you happy",
-
-    # Fun & Lighthearted
-    "your favorite food", "pets or animals", "your go-to karaoke song",
-    "hidden talents", "your favorite season and why", "coffee or tea",
-    "a funny personal story",
-
-    # Deeper Connection
-    "your love language", "what you look for in a partner", "family and friends",
-    "your definition of a perfect day",
-]
 
 def generate_topic_suggestions(
     discovered_topics: Dict[str, List[str]],
     existing_keyphrases: List[str],
+    my_profile: str,
+    their_profile: str,
     similarity_threshold=0.7,
     top_n=5
 ) -> List[str]:
     """
-    Generates future conversation topic suggestions based on existing topics.
+    Generates future conversation topic suggestions based on existing topics
+    and profile information.
     """
-    if not discovered_topics:
-        # Return generic suggestions if no topics were discovered
-        return [
-            "Ask about something they are passionate about.",
-            "Bring up a recent experience you enjoyed.",
-            "Talk about favorite weekend activities."
-        ][:top_n]
+    if nlp is None or _extract_keyphrases is None:
+        return ["Error: NLP model not loaded."]
 
+    # 1. Create a dynamic suggestion vocabulary from profiles
+    profile_text = f"{my_profile}\n{their_profile}"
+    profile_doc = nlp(profile_text)
+    suggestion_vocabulary = _extract_keyphrases(profile_doc)
+
+    if not suggestion_vocabulary:
+        return ["Could not find any topics in the profiles to suggest."]
+
+    # 2. If no topics were discovered in convo, suggest top topics from profiles
+    # that haven't been discussed.
+    if not discovered_topics:
+        final_suggestions = []
+        for suggestion in suggestion_vocabulary:
+            if suggestion not in existing_keyphrases:
+                final_suggestions.append(suggestion)
+            if len(final_suggestions) >= top_n:
+                break
+        return final_suggestions if final_suggestions else ["No new topics to suggest from profiles."]
+
+    # 3. Find suggestions from profile vocab that are related to conversation topics
     seed_topics = list(discovered_topics.keys())
 
-    # Embed the seed topics, the suggestion vocabulary, and existing phrases
     seed_embeddings = embedder_service.encode_cached(seed_topics)
-    vocab_embeddings = embedder_service.encode_cached(SUGGESTION_VOCABULARY)
+    vocab_embeddings = embedder_service.encode_cached(suggestion_vocabulary)
 
-    # Calculate similarity between seed topics and the suggestion vocabulary
     similarity_matrix = cosine_similarity(seed_embeddings, vocab_embeddings)
 
-    # Find the best suggestion for each seed topic, store with its similarity score
     potential_suggestions = {}
-    for i in range(similarity_matrix.shape[0]):
-        for j in range(similarity_matrix.shape[1]):
+    for i in range(similarity_matrix.shape[0]): # For each seed topic
+        for j in range(similarity_matrix.shape[1]): # For each profile phrase
             score = similarity_matrix[i][j]
-            suggestion = SUGGESTION_VOCABULARY[j]
-            # If suggestion is already there, update if the new score is higher
+            suggestion = suggestion_vocabulary[j]
             if suggestion not in potential_suggestions or score > potential_suggestions[suggestion]:
                 potential_suggestions[suggestion] = score
 
-    # Sort suggestions by similarity score in descending order
     sorted_suggestions = sorted(potential_suggestions.items(), key=lambda item: item[1], reverse=True)
 
-    # Filter out suggestions that are too similar to what has already been said
+    # 4. Filter out suggestions that have already been discussed
     final_suggestions = []
-    if existing_keyphrases:
-        existing_phrase_embeddings = embedder_service.encode_cached(existing_keyphrases)
-        for suggestion, score in sorted_suggestions:
-            if len(final_suggestions) >= top_n:
-                break
-
-            suggestion_embedding = embedder_service.encode_cached([suggestion])
-            similarity_to_existing = cosine_similarity(suggestion_embedding, existing_phrase_embeddings)
-
-            if np.max(similarity_to_existing) < similarity_threshold:
-                final_suggestions.append(suggestion)
-    else: # If no existing keyphrases, just take the top N
-        final_suggestions = [s for s, score in sorted_suggestions[:top_n]]
-
+    for suggestion, score in sorted_suggestions:
+        if len(final_suggestions) >= top_n:
+            break
+        # A simple direct check is better now that we use the same keyphrase extractor
+        if suggestion not in existing_keyphrases:
+            final_suggestions.append(suggestion)
 
     if not final_suggestions:
-        return [
-            "Ask about something they are passionate about.",
-            "Bring up a recent experience you enjoyed."
-        ]
+        return ["You've already discussed the main topics from the profiles! Try asking an open-ended question."]
 
     return final_suggestions

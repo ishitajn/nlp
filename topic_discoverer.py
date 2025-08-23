@@ -19,10 +19,17 @@ except OSError:
 
 
 def _clean_phrase(text: str) -> str:
-    """Removes leading/trailing whitespace and articles."""
+    """Removes leading/trailing whitespace, articles, and possessive pronouns."""
     text = text.lower().strip()
+    # Remove articles
     if text.startswith("the ") or text.startswith("a ") or text.startswith("an "):
         text = text.split(" ", 1)[1]
+    # Remove possessive pronouns
+    possessives = ["my ", "your ", "his ", "her ", "its ", "our ", "their "]
+    for p in possessives:
+        if text.startswith(p):
+            text = text[len(p):]
+            break  # A phrase shouldn't start with multiple possessives
     return text
 
 
