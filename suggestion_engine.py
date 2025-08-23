@@ -1,17 +1,15 @@
 # In app/svc/suggestion_engine.py
 
+import os
+import json
 import random
-from typing import Dict, Any, List
-from collections import defaultdict
-
-# Import necessary services and libraries for advanced features
-from embedder import embedder_service
 import numpy as np
+from typing import Dict, Any, List, Optional
+from collections import defaultdict, Counter
 from sklearn.metrics.pairwise import cosine_similarity
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-# Import data from the analysis engine for topic mapping
-from analysis_engine import nlp, canonical_topic_names, canonical_topic_vectors
+from embedder import embedder_service
 from model import Feedback
 
 # Constants
@@ -50,94 +48,45 @@ SUGGESTION_TEMPLATES = {
 # ==============================================================================
 # == THE DEFINITIVE SUGGESTION STRATEGY MAP                                   ==
 # ==============================================================================
+# This map now uses the categories from topic_engine.py's DATING_TAXONOMY
 SUGGESTION_STRATEGY_MAP = {
-    "Career & Ambition": {"topics": ["rapport"], "questions": ["rapport"], "intimacy": ["validation"], "sexual": ["low_tension"]},
-    "Family & Background": {"topics": ["rapport"], "questions": ["rapport"], "intimacy": ["connection"], "sexual": ["low_tension"]},
-    "Hobbies & Passions": {"topics": ["rapport", "contextual"], "questions": ["contextual"], "intimacy": ["contextual"], "sexual": ["medium_tension"]},
-    "Travel & Adventure": {"topics": ["rapport", "contextual"], "questions": ["contextual"], "intimacy": ["connection"], "sexual": ["medium_tension"]},
-    "Fitness & Health": {"topics": ["rapport"], "questions": ["rapport"], "intimacy": ["validation"], "sexual": ["low_tension"]},
-    "Food & Drink": {"topics": ["rapport", "contextual"], "questions": ["contextual"], "intimacy": ["connection"], "sexual": ["medium_tension"]},
-    "Flirting & Compliments": {"topics": ["escalation"], "questions": ["escalation"], "intimacy": ["validation", "contextual"], "sexual": ["medium_tension", "high_tension"]},
-    "Deeper Connection": {"topics": ["rapport"], "questions": ["rapport"], "intimacy": ["validation", "connection"], "sexual": ["medium_tension"]},
-    "Making Plans & Logistics": {"topics": ["escalation"], "questions": ["escalation"], "intimacy": ["connection"], "sexual": ["high_tension"]},
-    "Sexual Escalation & Kinks": {"topics": ["escalation"], "questions": ["escalation"], "intimacy": ["validation"], "sexual": ["high_tension"]},
-    "Pop Culture & Media": {"topics": ["rapport"], "questions": ["rapport"], "intimacy": ["connection"], "sexual": ["low_tension"]},
-    "Inside Jokes & Nicknames": {"topics": ["contextual"], "questions": ["contextual"], "intimacy": ["connection"], "sexual": ["medium_tension"]},
+    "Work & Ambition": {"topics": ["rapport"], "questions": ["rapport"], "intimacy": ["validation"], "sexual": ["low_tension"]},
+    "Deeper Connection": {"topics": ["rapport"], "questions": ["rapport"], "intimacy": ["connection"], "sexual": ["low_tension"]},
+    "Hobbies & Interests": {"topics": ["rapport", "contextual"], "questions": ["contextual"], "intimacy": ["contextual"], "sexual": ["medium_tension"]},
+    "Flirting": {"topics": ["escalation"], "questions": ["escalation"], "intimacy": ["validation", "contextual"], "sexual": ["medium_tension", "high_tension"]},
+    "Logistics": {"topics": ["escalation"], "questions": ["escalation"], "intimacy": ["connection"], "sexual": ["high_tension"]},
+    "Uncategorized": {"topics": ["fallback"], "questions": ["fallback"], "intimacy": ["fallback"], "sexual": ["fallback"]},
 }
 
-# ==============================================================================
-# == TOPIC HIERARCHY & CONVERSATION PHASE MODELS                              ==
-# ==============================================================================
-TOPIC_HIERARCHY = {
-    "Personal Topics": {
-        "sub_topics": ["Career & Ambition", "Family & Background", "Hobbies & Passions", "Fitness & Health", "Food & Drink", "Pop Culture & Media"],
-    },
-    "Interpersonal Topics": {
-        "sub_topics": ["Flirting & Compliments", "Deeper Connection", "Making Plans & Logistics", "Inside Jokes & Nicknames"],
-    },
-    "Intimate Topics": {
-        "sub_topics": ["Sexual Escalation & Kinks"],
-    }
-}
-
+# Simplified phase model
 CONVERSATION_PHASE_MAP = {
-    "Icebreaker": {"next": ["Personal Interests", "Flirting"], "themes": ["Personal Topics"]},
-    "Personal Interests": {"next": ["Personal Interests", "Flirting", "Deeper Connection"], "themes": ["Personal Topics", "Interpersonal Topics"]},
-    "Flirting": {"next": ["Personal Interests", "Deeper Connection", "Logistics / Planning", "Intimate Topics"], "themes": ["Interpersonal Topics"]},
-    "Deeper Connection": {"next": ["Flirting", "Intimate Topics", "Logistics / Planning"], "themes": ["Interpersonal Topics", "Intimate Topics"]},
-    "Logistics / Planning": {"next": ["Flirting"], "themes": ["Interpersonal Topics"]},
-    "Intimate Topics": {"next": ["Deeper Connection", "Flirting"], "themes": ["Intimate Topics"]},
+    "Icebreaker": {"next_themes": ["Hobbies & Interests", "Flirting"]},
+    "Rapport Building": {"next_themes": ["Hobbies & Interests", "Flirting", "Deeper Connection"]},
+    "Escalation": {"next_themes": ["Deeper Connection", "Logistics", "Flirting"]},
+    "Explicit Banter": {"next_themes": ["Deeper Connection", "Flirting"]},
+    "Logistics": {"next_themes": ["Flirting"]},
 }
-
-
-def _get_weighted_topics(occurrence: Dict[str, int], recency: Dict[str, int], count: int) -> List[str]:
-    """Combines occurrence and recency for a human-like topic ranking."""
-    scores = {}
-    all_heatmap_topics = set(occurrence.keys()) | set(recency.keys())
-    for topic in all_heatmap_topics:
-        num = occurrence.get(topic, 0)
-        recency_rank = recency.get(topic, 100)
-        score = (1 / recency_rank) * 10 + num
-        scores[topic] = score
-    
-    sorted_topics = sorted(scores.items(), key=lambda item: item[1], reverse=True)
-    return [topic for topic, score in sorted_topics[:count]]
 
 
 class AdvancedSuggestionEngine:
-    """
-    A sophisticated suggestion engine that uses a weighted, persistent transition graph,
-    semantic similarity, and conversation phase awareness to generate relevant suggestions.
-    Includes a feedback loop to learn from user choices over time.
-    """
-    def __init__(self, analysis_data: Dict[str, Any], conversation_turns: List[Dict[str, Any]], feedback: Optional[List[Feedback]] = None):
+    def __init__(self, analysis_data: Dict[str, Any], conversation_turns: List[Dict[str, Any]], identified_topics: List[Dict[str, Any]], feedback: Optional[List[Feedback]] = None):
         self.analysis = analysis_data
         self.turns = conversation_turns
+        self.topics = identified_topics
         self.feedback = feedback or []
         self.graph_path = GRAPH_DATA_PATH
-
-        # Initialize models and data structures
-        self.topic_hierarchy = TOPIC_HIERARCHY
-        self.phase_map = CONVERSATION_PHASE_MAP
         self.sentiment_analyzer = SentimentIntensityAnalyzer()
 
-        # --- Learning Pipeline ---
-        # 1. Load the long-term knowledge graph
+        # Learning Pipeline
         self.transition_graph = self._load_persistent_graph()
-        # 2. Build a graph from the current conversation
         session_graph = self._build_transition_graph_from_session()
-        # 3. Merge session knowledge into the main graph
         self._merge_graphs(self.transition_graph, session_graph)
-        # 4. Apply feedback from the user to refine the graph
         self._apply_feedback()
-        # 5. Save the updated graph for future sessions
         self._save_persistent_graph()
 
     def _load_persistent_graph(self) -> Dict[str, Dict[str, float]]:
-        """Loads the transition graph from a JSON file."""
         if os.path.exists(self.graph_path):
             with open(self.graph_path, 'r') as f:
-                # The loaded JSON will have string keys, convert inner keys back to defaultdict
                 loaded_graph = json.load(f)
                 graph = defaultdict(lambda: defaultdict(float))
                 for from_topic, to_topics in loaded_graph.items():
@@ -146,53 +95,37 @@ class AdvancedSuggestionEngine:
         return defaultdict(lambda: defaultdict(float))
 
     def _save_persistent_graph(self):
-        """Saves the transition graph to a JSON file."""
         os.makedirs(os.path.dirname(self.graph_path), exist_ok=True)
         with open(self.graph_path, 'w') as f:
             json.dump(self.transition_graph, f, indent=4)
 
     def _merge_graphs(self, main_graph: Dict, session_graph: Dict):
-        """Merges the session graph into the main persistent graph."""
         for from_topic, to_topics in session_graph.items():
             for to_topic, score in to_topics.items():
                 main_graph[from_topic][to_topic] += score
 
     def _apply_feedback(self):
-        """
-        Adjusts the transition graph weights based on user feedback.
-        Chosen suggestions are reinforced.
-        """
         for fb in self.feedback:
             if fb.action == "chosen":
                 from_topic = fb.current_topic
                 to_topic = fb.chosen_suggestion
-                # Reinforce the chosen path with a significant boost
                 self.transition_graph[from_topic][to_topic] *= 1.2
                 self.transition_graph[from_topic][to_topic] += 0.5
 
+    def _get_topic_sequence(self) -> List[Optional[str]]:
+        """Reconstructs the topic sequence from the identified topics."""
+        turn_to_topic_map = {}
+        for topic in self.topics:
+            for turn in topic["message_turns"]:
+                # Using turn 'id' or a unique identifier if available, otherwise content
+                turn_key = turn.get('id', turn['content'])
+                turn_to_topic_map[turn_key] = topic["canonical_name"]
 
-    def _get_topic_sequence(self) -> List[str]:
-        topic_sequence = []
-        if not nlp: return []
+        sequence = []
         for turn in self.turns:
-            content = turn.get('content', '')
-            if not content.strip():
-                topic_sequence.append(None)
-                continue
-            doc = nlp(content)
-            sentences = [sent.text for sent in doc.sents if len(sent.text.split()) > 2]
-            if not sentences:
-                topic_sequence.append(None)
-                continue
-            sentence_vectors = embedder_service.encode_cached(sentences)
-            similarity_matrix = cosine_similarity(sentence_vectors, canonical_topic_vectors)
-            max_sim_score = np.max(similarity_matrix)
-            if max_sim_score > 0.5:
-                best_match_index = np.unravel_index(np.argmax(similarity_matrix, axis=None), similarity_matrix.shape)[1]
-                topic_sequence.append(canonical_topic_names[best_match_index])
-            else:
-                topic_sequence.append(None)
-        return topic_sequence
+            turn_key = turn.get('id', turn['content'])
+            sequence.append(turn_to_topic_map.get(turn_key))
+        return sequence
 
     def _build_transition_graph_from_session(self) -> Dict[str, Dict[str, float]]:
         topic_sequence = self._get_topic_sequence()
@@ -200,115 +133,125 @@ class AdvancedSuggestionEngine:
         num_turns = len(self.turns)
         for i in range(num_turns - 1):
             from_topic, to_topic = topic_sequence[i], topic_sequence[i+1]
-            if not from_topic or not to_topic: continue
+            if not from_topic or not to_topic or from_topic == to_topic:
+                continue
             
-            base_score = 1.0
-            recency_weight = 0.95 ** (num_turns - 1 - i)
             sentiment_score = self.sentiment_analyzer.polarity_scores(self.turns[i]['content'])['compound']
             sentiment_weight = 1.0 + sentiment_score
-            role_weight = 1.2 if self.turns[i].get('role') == 'user' else 1.0
-            adjusted_score = base_score * recency_weight * sentiment_weight * role_weight
-            graph[from_topic][to_topic] += adjusted_score
-        return graph
+            recency_weight = 0.95 ** (num_turns - 1 - i)
 
-    def _get_current_phase(self, priority: List[str]) -> str:
-        detected_phases = self.analysis.get("detected_phases", ["Icebreaker"])
-        for phase in priority:
-            if phase in detected_phases: return phase
-        return detected_phases[0] if detected_phases else "Icebreaker"
+            graph[from_topic][to_topic] += 1.0 * sentiment_weight * recency_weight
+        return graph
 
     def get_suggestions(self) -> Dict[str, List[str]]:
         topic_sequence = self._get_topic_sequence()
-        current_topic = next((t for t in reversed(topic_sequence) if t is not None), None)
-        phase_priority = ["Intimate Topics", "Logistics / Planning", "Deeper Connection", "Flirting", "Personal Interests", "Icebreaker"]
-        current_phase = self._get_current_phase(phase_priority)
-        sentiment = self.analysis.get("sentiment_analysis", {}).get("overall", "neutral")
+        current_topic_name = next((t for t in reversed(topic_sequence) if t is not None), None)
+
         candidate_info = defaultdict(lambda: {'score': 0.0, 'reasons': set()})
 
-        if current_topic and current_topic in self.transition_graph:
-            for next_topic, score in self.transition_graph[current_topic].items():
+        # 1. Add candidates from the transition graph
+        if current_topic_name and current_topic_name in self.transition_graph:
+            for next_topic, score in self.transition_graph[current_topic_name].items():
                 candidate_info[next_topic]['score'] += score
-                candidate_info[next_topic]['reasons'].add(f"It's a natural transition from '{current_topic}'.")
-                if sentiment in ["positive", "very positive"]:
-                     candidate_info[next_topic]['reasons'].add("The conversation vibe is positive.")
+                candidate_info[next_topic]['reasons'].add("Natural transition")
 
-        recency_map = self.analysis.get("conversation_state", {}).get("topic_recency_heatmap", {})
-        occurrence_map = self.analysis.get("conversation_state", {}).get("topic_occurrence_heatmap", {})
+        # 2. Add other topics present in the conversation as candidates
+        all_topic_names = {t["canonical_name"] for t in self.topics}
+        for topic_name in all_topic_names:
+            if topic_name not in candidate_info:
+                candidate_info[topic_name]['score'] += 0.1 # Small boost for being mentioned
+                candidate_info[topic_name]['reasons'].add("Mentioned in conversation")
 
-        for topic in set(canonical_topic_names):
-            if current_phase in self.phase_map:
-                for theme in self.phase_map[current_phase]["themes"]:
-                    if topic in self.topic_hierarchy.get(theme, {}).get("sub_topics", []):
-                        candidate_info[topic]['score'] += 0.5
-                        candidate_info[topic]['reasons'].add(f"It fits the '{current_phase}' phase.")
-            if topic in occurrence_map:
-                candidate_info[topic]['score'] += occurrence_map.get(topic, 0) * 0.1
-                candidate_info[topic]['reasons'].add("It's a popular topic.")
-            if topic in recency_map:
-                penalty = (1 - (1 / (recency_map[topic] + 1)))
-                candidate_info[topic]['score'] *= penalty
-                if penalty < 0.7: candidate_info[topic]['reasons'].add("You just talked about this.")
+        # 3. Apply scoring based on context
+        recency_map = self.analysis.get("topic_recency", {})
+        saliency_map = self.analysis.get("topic_saliency", {})
 
-        if current_topic:
-            current_topic_index = canonical_topic_names.index(current_topic)
-            current_topic_vector = canonical_topic_vectors[current_topic_index].reshape(1, -1)
-            for topic in list(candidate_info.keys()):
-                if topic == current_topic:
-                    del candidate_info[topic]
-                    continue
-                topic_index = canonical_topic_names.index(topic)
-                topic_vector = canonical_topic_vectors[topic_index].reshape(1, -1)
-                similarity = cosine_similarity(current_topic_vector, topic_vector)[0][0]
-                if similarity > 0.85:
-                    candidate_info[topic]['score'] *= 0.1
-                    candidate_info[topic]['reasons'].add("It's very similar to the current topic.")
+        for topic_name, info in candidate_info.items():
+            # Penalize recent topics
+            if topic_name in recency_map:
+                penalty = 0.5 * (1 / recency_map[topic_name])
+                info['score'] *= penalty
+            # Boost salient topics
+            if topic_name in saliency_map:
+                info['score'] += saliency_map[topic_name] * 0.2
 
-        if not candidate_info:
-            if current_phase in self.phase_map:
-                for theme in self.phase_map[current_phase]["themes"]:
-                    for topic in self.topic_hierarchy.get(theme, {}).get("sub_topics", []):
-                        candidate_info[topic]['score'] += 1.0
-                        candidate_info[topic]['reasons'].add(f"A good starting point for the '{current_phase}' phase.")
+        # 4. Filter out the current topic and very similar topics
+        if current_topic_name:
+            if current_topic_name in candidate_info:
+                del candidate_info[current_topic_name]
 
+            # Semantic filtering
+            candidate_names = list(candidate_info.keys())
+            if candidate_names:
+                current_topic_embedding = embedder_service.encode_cached([current_topic_name])
+                candidate_embeddings = embedder_service.encode_cached(candidate_names)
+                similarities = cosine_similarity(current_topic_embedding, candidate_embeddings)[0]
+
+                for i, topic_name in enumerate(candidate_names):
+                    if similarities[i] > 0.85:
+                        candidate_info[topic_name]['score'] *= 0.1 # Penalize
+                        candidate_info[topic_name]['reasons'].add("Similar to current topic")
+
+        # 5. Sort and select top N
         sorted_candidates = sorted(candidate_info.items(), key=lambda item: item[1]['score'], reverse=True)
         top_5_suggestions = [{"topic": t, "score": i['score'], "reason": " ".join(list(i['reasons']))} for t, i in sorted_candidates[:5]]
 
         return self._format_suggestions_for_output(top_5_suggestions)
 
     def _format_suggestions_for_output(self, suggestions_with_reasons: List[Dict]) -> Dict[str, List[str]]:
-        topics = [s['topic'] for s in suggestions_with_reasons]
+        suggested_topics = [s['topic'] for s in suggestions_with_reasons]
         suggestions = { "topics": [], "questions": [], "intimacy": [], "sexual": [] }
-        topic_mapping = self.analysis.get("conversation_state", {}).get("topic_mapping", {})
+
+        # Create a lookup for topic details
+        topic_details_map = {t["canonical_name"]: t for t in self.topics}
+
         for category in suggestions.keys():
             category_suggestions = set()
-            for canonical_topic in topics:
+            for canonical_topic_name in suggested_topics:
                 if len(category_suggestions) >= 5: break
-                strategies = SUGGESTION_STRATEGY_MAP.get(canonical_topic, {}).get(category, [])
+
+                topic_details = topic_details_map.get(canonical_topic_name)
+                if not topic_details: # Topic might be from graph, not current convo
+                    # Try to find a similar topic in the current conversation to get a category
+                    if not self.topics: continue
+                    sims = cosine_similarity(embedder_service.encode_cached([canonical_topic_name]), embedder_service.encode_cached([t['canonical_name'] for t in self.topics]))[0]
+                    topic_details = self.topics[np.argmax(sims)]
+
+                topic_category = topic_details.get("category", "Uncategorized")
+                strategies = SUGGESTION_STRATEGY_MAP.get(topic_category, {}).get(category, [])
                 if not strategies: continue
-                raw_topics = topic_mapping.get(canonical_topic) or [canonical_topic.lower().replace(" & ", " ")]
+
+                # Use a relevant keyword for the suggestion
+                keyword_to_use = random.choice(topic_details.get("keywords", [canonical_topic_name]))
+
                 strategy = random.choice(strategies)
                 template = random.choice(SUGGESTION_TEMPLATES[category][strategy])
-                raw_topic_to_use = random.choice(raw_topics)
-                suggestion = template.format(topic=raw_topic_to_use)
+                suggestion = template.format(topic=keyword_to_use)
+
                 if suggestion not in category_suggestions:
                     category_suggestions.add(suggestion)
+
             suggestions[category] = list(category_suggestions)
+
+        # Fill with fallbacks if not enough suggestions were generated
         for category, items in suggestions.items():
             if len(items) < 5:
                 needed = 5 - len(items)
                 fallback_templates = SUGGESTION_TEMPLATES[category]["fallback"]
                 for _ in range(needed):
-                    suggestion = random.choice(fallback_templates)
-                    if "{topic}" in suggestion:
-                        suggestion = suggestion.format(topic="your vibe")
+                    suggestion = random.choice(fallback_templates).format(topic="your vibe")
                     if suggestion not in items:
                         items.append(suggestion)
         return suggestions
 
-def generate_suggestions(analysis_data: Dict[str, Any], conversation_turns: List[Dict[str, Any]], feedback: Optional[List[Feedback]] = None) -> Dict[str, List[str]]:
+def generate_suggestions(
+    analysis_data: Dict[str, Any],
+    conversation_turns: List[Dict[str, Any]],
+    identified_topics: List[Dict[str, Any]],
+    feedback: Optional[List[Feedback]] = None
+) -> Dict[str, List[str]]:
     """
     Generates 5 creative, context-aware suggestions for each category.
-    This function now delegates the work to the AdvancedSuggestionEngine.
     """
-    engine = AdvancedSuggestionEngine(analysis_data, conversation_turns, feedback)
+    engine = AdvancedSuggestionEngine(analysis_data, conversation_turns, identified_topics, feedback)
     return engine.get_suggestions()

@@ -1,4 +1,4 @@
-# In topic_engine_v2.py
+# In topic_engine.py
 import numpy as np
 import hdbscan
 import yake
@@ -8,7 +8,6 @@ from rapidfuzz import fuzz
 from sklearn.metrics.pairwise import cosine_similarity
 
 from embedder import embedder_service
-from preprocessor import preprocess_text
 
 def _deduplicate_and_merge_topics(
     topics: List[Dict[str, Any]],
@@ -66,59 +65,6 @@ def _deduplicate_and_merge_topics(
 
     return merged_topics
 
-
-def run_topic_engine(conversation_turns: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Runs the full topic analysis pipeline, now with deduplication.
-    """
-    if not conversation_turns:
-        return {}
-
-    original_contents = [turn.get('content', '') for turn in conversation_turns]
-    processed_texts = [preprocess_text(content) for content in original_contents]
-
-    text_map = {proc: orig for proc, orig in zip(processed_texts, original_contents) if proc}
-    if not text_map:
-        return {"error": "No text left after preprocessing."}
-
-    valid_processed_texts = list(text_map.keys())
-    embeddings = embedder_service.encode_cached(valid_processed_texts)
-
-    clusterer = hdbscan.HDBSCAN(min_cluster_size=2, min_samples=1, metric='cosine', cluster_selection_method='eom')
-    cluster_labels = clusterer.fit_predict(embeddings)
-
-    clustered_texts = defaultdict(list)
-    original_indices = {proc: i for i, proc in enumerate(valid_processed_texts)}
-
-    # Map cluster labels to the original indices of the embeddings
-    label_to_indices = defaultdict(list)
-    for i, label in enumerate(cluster_labels):
-        label_to_indices[label].append(i)
-
-    # Group original text content by cluster label
-    for label, indices in label_to_indices.items():
-        if label == -1: continue
-        for idx in indices:
-            original_text = text_map[valid_processed_texts[idx]]
-            clustered_texts[label].append(original_text)
-
-    kw_extractor = yake.KeywordExtractor(lan="en", n=3, dedupLim=0.9, top=5, features=None)
-    initial_topics = []
-    for label, texts in clustered_texts.items():
-        if not texts: continue
-        full_cluster_text = " ".join(texts)
-        keywords = [kw for kw, score in kw_extractor.extract_keywords(full_cluster_text)]
-        initial_topics.append({"topic_id": int(label), "keywords": keywords, "messages": texts})
-
-    # --- New Deduplication Step ---
-    deduplicated_topics = _deduplicate_and_merge_topics(initial_topics, embeddings, cluster_labels)
-
-    sorted_topics = sorted(deduplicated_topics, key=lambda x: len(x["messages"]), reverse=True)
-    final_topics = _map_topics_to_taxonomy(sorted_topics)
-
-    return {"identified_topics": final_topics}
-
-
 DATING_TAXONOMY = {
     "Logistics": ["plan", "meet", "dinner", "coffee", "drinks", "when", "where", "time", "number", "schedule"],
     "Flirting": ["cute", "hot", "sexy", "beautiful", "gorgeous", "haha", "lol", "omg", "wow", "feel", "vibe", "kiss", "date"],
@@ -156,3 +102,81 @@ def _map_topics_to_taxonomy(topics: List[Dict[str, Any]]) -> List[Dict[str, Any]
             topic["category"] = "Uncategorized"
 
     return topics
+
+def identify_topics(conversation_turns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Runs the full topic analysis pipeline.
+    """
+    if not conversation_turns:
+        return []
+
+    # Use the 'processed_content' from the preprocessor
+    processed_texts = [turn.get('processed_content', '') for turn in conversation_turns]
+    # Keep a map to the original turn object
+    text_to_turn_map = {proc: turn for proc, turn in zip(processed_texts, conversation_turns) if proc}
+
+    if not text_to_turn_map:
+        return []
+
+    valid_processed_texts = list(text_to_turn_map.keys())
+    embeddings = embedder_service.encode_cached(valid_processed_texts)
+
+    clusterer = hdbscan.HDBSCAN(min_cluster_size=2, min_samples=1, metric='cosine', cluster_selection_method='eom', allow_single_cluster=True)
+    cluster_labels = clusterer.fit_predict(embeddings)
+
+    # Group texts by cluster label
+    clustered_texts = defaultdict(list)
+    for i, label in enumerate(cluster_labels):
+        if label == -1: continue # Skip outliers
+        clustered_texts[label].append(valid_processed_texts[i])
+
+    # Extract keywords and form initial topics
+    kw_extractor = yake.KeywordExtractor(lan="en", n=3, dedupLim=0.9, top=5, features=None)
+    initial_topics = []
+    for label, texts in clustered_texts.items():
+        if not texts: continue
+        full_cluster_text = " ".join(texts)
+        keywords = [kw for kw, score in kw_extractor.extract_keywords(full_cluster_text)]
+        # Map back to original messages
+        messages = [text_to_turn_map[text]['content'] for text in texts]
+        initial_topics.append({
+            "topic_id": int(label),
+            "keywords": keywords,
+            "messages": messages,
+            "message_turns": [text_to_turn_map[text] for text in texts] # Keep original turn objects
+        })
+
+    # Deduplicate topics
+    if len(initial_topics) > 1:
+        # We need the embeddings of the processed texts that were actually clustered
+        clustered_embeddings = embeddings[cluster_labels != -1]
+        # And the corresponding labels
+        labels_for_dedup = cluster_labels[cluster_labels != -1]
+        deduplicated_topics = _deduplicate_and_merge_topics(initial_topics, clustered_embeddings, labels_for_dedup)
+    else:
+        deduplicated_topics = initial_topics
+
+    # Select canonical name and finalize structure
+    final_topics = []
+    for topic in deduplicated_topics:
+        if not topic["keywords"]: continue
+
+        # Simple canonicalization: use the first keyword
+        canonical_name = topic["keywords"][0]
+
+        final_topics.append({
+            "canonical_name": canonical_name,
+            "keywords": topic["keywords"],
+            "category": "Uncategorized", # will be filled by taxonomy mapping
+            "message_count": len(topic["messages"]),
+            "messages": topic["messages"],
+            "message_turns": topic["message_turns"]
+        })
+
+    # Map to taxonomy
+    categorized_topics = _map_topics_to_taxonomy(final_topics)
+
+    # Sort by message count
+    sorted_topics = sorted(categorized_topics, key=lambda x: x["message_count"], reverse=True)
+
+    return sorted_topics

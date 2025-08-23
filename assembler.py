@@ -1,4 +1,4 @@
-# In app/svc/assembler.py
+# In assembler.py
 
 from typing import Dict, Any, List
 
@@ -6,45 +6,43 @@ def build_final_json(
     payload: Dict[str, Any],
     analysis_data: Dict[str, Any],
     suggestions: Dict[str, List[str]],
-    geo: Dict[str, Any]
+    geo: Dict[str, Any] # This is now always None, but kept for compatibility in main.py
 ) -> Dict[str, Any]:
     
-    # Extract the full conversation_state, which now includes the mapping
-    conversation_state = analysis_data.get("conversation_state", {
-        "topics": {"focus": [], "avoid": [], "neutral": [], "sensitive": [], "fetish": [], "sexual": [], "inside_jokes": []},
-        "recent_topics": [], "topic_occurrence_heatmap": {}, "topic_recency_heatmap": {}, "topic_mapping": {}
-    })
+    context = analysis_data.get("contextual_features", {})
+    topics = analysis_data.get("identified_topics", [])
 
-    geo_output = {
-        "userLocation": {
-            "City": geo.get("my_location", {}).get("city_state", "N/A"), "Current Time": geo.get("my_location", {}).get("current_time", "N/A"),
-            "Time of Day": geo.get("my_location", {}).get("time_of_day", "N/A"), "Time Zone": geo.get("my_location", {}).get("timezone", "N/A"),
-            "Country": geo.get("my_location", {}).get("country", "N/A"),
-        },
-        "matchLocation": {
-            "City": geo.get("their_location", {}).get("city_state", "N/A"), "Current Time": geo.get("their_location", {}).get("current_time", "N/A"),
-            "Time of Day": geo.get("their_location", {}).get("time_of_day", "N/A"), "Time Zone": geo.get("their_location", {}).get("timezone", "N/A"),
-            "Country": geo.get("their_location", {}).get("country", "N/A"),
-        },
-        "Time Difference": f"{geo.get('time_difference_hours', 'N/A')} hours",
-        "Distance": f"{geo.get('distance_km', 'N/A')} km"
+    # Create a new, clean conversation state from the new data structures
+    conversation_state = {
+        "identified_topics": [
+            {
+                "topic": t.get("canonical_name"),
+                "category": t.get("category"),
+                "keywords": t.get("keywords"),
+                "message_count": t.get("message_count")
+            } for t in topics
+        ],
+        "topic_saliency": context.get("topic_saliency", {}),
+        "topic_recency": context.get("topic_recency", {}),
+        "detected_phases": context.get("detected_phases", []),
+        "detected_tones": context.get("detected_tones", []),
+        "detected_intents": context.get("detected_intents", []),
     }
 
+    # Simplified analysis object
     final_analysis_object = {
-        "sentiment": analysis_data.get("sentiment_analysis", {}).get("overall", "neutral"),
-        "flirtation_level": analysis_data.get("engagement_metrics", {}).get("flirtation_level", "low"),
-        "engagement": analysis_data.get("engagement_metrics", {}).get("level", "low"),
-        "pace": analysis_data.get("engagement_metrics", {}).get("pace", "steady"),
+        "sentiment": context.get("sentiment_analysis", {}).get("overall", "neutral"),
+        "sentiment_score": context.get("sentiment_analysis", {}).get("compound_score", 0.0),
+        "user_turn_count": context.get("speaker_metrics", {}).get("user_turn_count", 0),
+        "their_turn_count": context.get("speaker_metrics", {}).get("their_turn_count", 0),
     }
 
     final_output = {
         "matchId": payload.get("matchId"),
         "conversation_state": conversation_state,
-        "geo": geo_output,
         "suggestions": suggestions,
         "analysis": final_analysis_object,
-        "sentiment": { "overall": final_analysis_object["sentiment"] },
-        "pipeline": "enhanced_semantic_v8_final"
+        "pipeline": "modular_semantic_v1"
     }
 
     return final_output

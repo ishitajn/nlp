@@ -1,18 +1,16 @@
 # In preprocessor.py
 import re
 import spacy
+from typing import List, Dict, Any
 
-# Attempt to import the spaCy model instance from analysis_engine
+# Load the spaCy model
 try:
-    from analysis_engine import nlp
-    print("Preprocessor: Successfully imported 'nlp' model from analysis_engine.")
-except (ImportError, ModuleNotFoundError):
-    print("Preprocessor: Could not import 'nlp' model. Loading a new spaCy model.")
-    try:
-        nlp = spacy.load("en_core_web_sm")
-    except OSError:
-        print("Spacy model 'en_core_web_sm' not found. Please run: python -m spacy download en_core_web_sm")
-        nlp = None
+    nlp = spacy.load("en_core_web_trf")
+    print("Preprocessor: Successfully loaded 'en_core_web_trf' model.")
+except OSError:
+    print("Spacy model 'en_core_web_trf' not found. Please run: python -m spacy download en_core_web_trf")
+    # Fallback or handle error appropriately
+    nlp = None
 
 # Custom stopwords, including common chat slang and conversational filler
 CUSTOM_STOPWORDS = {
@@ -73,3 +71,34 @@ def preprocess_text(text: str, normalize_emojis_flag: bool = False) -> str:
     ]
 
     return " ".join(lemmatized_tokens)
+
+def preprocess_conversation(conversation_history: List[Dict[str, Any]], max_turns: int = 40) -> List[Dict[str, Any]]:
+    """
+    Preprocesses the conversation history.
+
+    Args:
+        conversation_history: The list of conversation turns.
+        max_turns: The maximum number of recent turns to keep for analysis.
+
+    Returns:
+        A new list containing the preprocessed conversation turns.
+    """
+    if not conversation_history:
+        return []
+
+    truncated_history = conversation_history[-max_turns:]
+
+    processed_history = []
+    for turn in truncated_history:
+        if isinstance(turn, dict) and "content" in turn and isinstance(turn["content"], str):
+            processed_turn = turn.copy()
+            # We are not using preprocess_text here as it removes a lot of information
+            # that might be useful for the analysis engine.
+            # We will just do basic cleaning.
+            text = turn["content"].strip()
+            text = re.sub(r'\s+', ' ', text)
+            processed_turn["content"] = text
+            processed_turn["processed_content"] = preprocess_text(text)
+            processed_history.append(processed_turn)
+
+    return processed_history
