@@ -4,6 +4,7 @@ from typing import List, Dict, Any
 # Import the new, modular engines
 from topic_engine import identify_topics
 from context_engine import extract_contextual_features
+from behavioral_engine import analyze_conversation_behavior
 
 def run_full_analysis(
     my_profile: str,
@@ -15,11 +16,11 @@ def run_full_analysis(
     
     1. Identifies topics from the conversation.
     2. Extracts contextual features based on the conversation and topics.
-    3. Assembles the final analysis dictionary.
+    3. Analyzes behavioral patterns.
+    4. Assembles the final analysis dictionary.
     """
     
     # 1. Identify topics using the new topic engine
-    # The conversation turns are expected to be pre-processed at this point
     identified_topics = identify_topics(processed_turns)
     
     # 2. Extract contextual features using the new context engine
@@ -30,11 +31,17 @@ def run_full_analysis(
         their_profile=their_profile
     )
     
-    # 3. Assemble the final analysis object
-    # The format should be clean and directly usable by the suggestion engine
+    # 3. Analyze behavioral patterns
+    behavioral_analysis = analyze_conversation_behavior(
+        conversation_turns=processed_turns,
+        identified_topics=identified_topics
+    )
+
+    # 4. Assemble the final analysis object
     final_analysis = {
         "identified_topics": identified_topics,
-        "contextual_features": contextual_features
+        "contextual_features": contextual_features,
+        "behavioral_analysis": behavioral_analysis
     }
     
     return final_analysis

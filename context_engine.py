@@ -85,4 +85,28 @@ def extract_contextual_features(
         "turn_count": len(conversation_turns)
     }
 
+    # --- 6. Engagement, Pace, and Flirtation Metrics ---
+    num_turns = len(conversation_turns)
+    question_count = conversation_history_str.count('?')
+    avg_msg_len = len(conversation_history_str) / num_turns if num_turns > 0 else 0
+
+    engagement = "low"
+    if num_turns > 4 and question_count > 2: engagement = "medium"
+    if num_turns > 8 and avg_msg_len > 50 and question_count > 4: engagement = "high"
+    if num_turns > 12 and avg_msg_len > 70 and question_count > 6: engagement = "very high"
+
+    pace = "steady"
+    if avg_msg_len < 40 and num_turns > 10: pace = "fast"
+    if avg_msg_len > 120: pace = "slow and thoughtful"
+    if "Escalation" in analysis["detected_phases"]: pace = "steady with potential for escalation"
+
+    flirt_keywords = ['flirt', 'teasing', 'sexy', 'hot', 'desire', 'tension', 'imagining', 'irresistible', '😉', '😏', 'cuddle', 'kiss']
+    flirt_score = sum(full_text_lower.count(kw) for kw in flirt_keywords)
+    flirtation_level = "low"
+    if flirt_score > 5 or "Explicit Banter" in analysis.get("detected_phases", []): flirtation_level = "very high"
+    elif flirt_score > 2 or "Escalation" in analysis.get("detected_phases", []): flirtation_level = "high"
+    elif flirt_score > 0: flirtation_level = "medium"
+
+    analysis["engagement_metrics"] = { "level": engagement, "pace": pace, "flirtation_level": flirtation_level }
+
     return analysis

@@ -122,6 +122,9 @@ def identify_topics(conversation_turns: List[Dict[str, Any]]) -> List[Dict[str, 
     embeddings = embedder_service.encode_cached(valid_processed_texts)
 
     distance_matrix = cosine_distances(embeddings)
+    if distance_matrix.dtype != np.float64:
+        distance_matrix = distance_matrix.astype(np.float64)
+
     clusterer = hdbscan.HDBSCAN(min_cluster_size=2, min_samples=1, metric='precomputed', cluster_selection_method='eom', allow_single_cluster=True)
     cluster_labels = clusterer.fit_predict(distance_matrix)
 
