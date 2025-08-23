@@ -54,7 +54,8 @@ async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
     # --- Generate final suggestions ---
     final_suggestions = await asyncio.to_thread(
         generate_suggestions,
-        analysis_data=analysis_results
+        analysis_data=analysis_results,
+        conversation_turns=cleaned_turns
     )
 
     # --- Assemble final output ---
