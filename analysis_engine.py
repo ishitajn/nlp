@@ -9,6 +9,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 from embedder import embedder_service
+from topic_discoverer import discover_topics
+from suggestion_generator import generate_topic_suggestions
 
 try:
     nlp = spacy.load("en_core_web_trf")
@@ -98,6 +100,17 @@ def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str,
     full_text_for_rules = f"{my_profile} {their_profile} {conversation_history_str}"
     full_text_lower = full_text_for_rules.lower()
     doc = nlp(conversation_history_str)
+
+    # --- New: Topic Discovery ---
+    topic_discovery_results = discover_topics(conversation_history_str)
+    discovered_topics = topic_discovery_results["labeled_clusters"]
+    all_keyphrases = topic_discovery_results["all_keyphrases"]
+
+    # --- New: Suggestion Generation ---
+    topic_suggestions = generate_topic_suggestions(
+        discovered_topics=discovered_topics,
+        existing_keyphrases=all_keyphrases
+    )
     
     # --- 1. Concept-Centric Semantic Search ---
     concept_map = _map_conversation_to_concepts(doc)
@@ -151,7 +164,8 @@ def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str,
         "recent_topics": list(recency_heatmap.keys()),
         "topic_occurrence_heatmap": occurrence_heatmap,
         "topic_recency_heatmap": recency_heatmap,
-        "topic_mapping": {k: v for k, v in topic_mapping.items() if v}
+        "topic_mapping": {k: v for k, v in topic_mapping.items() if v},
+        "discovered_topics": discovered_topics
     }
 
     # --- 5. Schema-Based Tagging (for Structure) ---
@@ -196,5 +210,6 @@ def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str,
 
     analysis["sentiment_analysis"] = { "overall": sentiment, "compound_score": compound_score }
     analysis["engagement_metrics"] = { "level": engagement, "pace": pace, "flirtation_level": flirtation_level }
+    analysis["topic_suggestions"] = topic_suggestions
 
     return analysis
