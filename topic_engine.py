@@ -65,44 +65,6 @@ def _deduplicate_and_merge_topics(
 
     return merged_topics
 
-DATING_TAXONOMY = {
-    "Logistics": ["plan", "meet", "dinner", "coffee", "drinks", "when", "where", "time", "number", "schedule"],
-    "Flirting": ["cute", "hot", "sexy", "beautiful", "gorgeous", "haha", "lol", "omg", "wow", "feel", "vibe", "kiss", "date"],
-    "Hobbies & Interests": ["hobbies", "interests", "music", "movie", "book", "show", "art", "sport", "game", "hike", "outdoors", "travel", "food"],
-    "Work & Ambition": ["work", "job", "career", "company", "office", "finance", "project", "ambition", "goal"],
-    "Deeper Connection": ["family", "friends", "relationship", "values", "feelings", "life", "story", "dream", "connect"],
-}
-
-taxonomy_embeddings = {
-    category: embedder_service.encode_cached([" ".join(keywords)])[0]
-    for category, keywords in DATING_TAXONOMY.items()
-}
-taxonomy_categories = list(DATING_TAXONOMY.keys())
-
-def _map_topics_to_taxonomy(topics: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Maps each topic to a category from the DATING_TAXONOMY using embedding similarity.
-    """
-    if not topics:
-        return []
-
-    for topic in topics:
-        keyword_str = " ".join(topic["keywords"])
-        if not keyword_str.strip():
-            topic["category"] = "Uncategorized"
-            continue
-
-        topic_embedding = embedder_service.encode_cached([keyword_str])[0]
-        similarities = [cosine_similarity(topic_embedding.reshape(1, -1), tax_emb.reshape(1, -1))[0][0] for tax_emb in taxonomy_embeddings.values()]
-
-        if similarities:
-            best_match_index = np.argmax(similarities)
-            topic["category"] = taxonomy_categories[best_match_index]
-        else:
-            topic["category"] = "Uncategorized"
-
-    return topics
-
 def identify_topics(conversation_turns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Runs the full topic analysis pipeline.
@@ -177,10 +139,7 @@ def identify_topics(conversation_turns: List[Dict[str, Any]]) -> List[Dict[str, 
             "message_turns": topic["message_turns"]
         })
 
-    # Map to taxonomy
-    categorized_topics = _map_topics_to_taxonomy(final_topics)
-
     # Sort by message count
-    sorted_topics = sorted(categorized_topics, key=lambda x: x["message_count"], reverse=True)
+    sorted_topics = sorted(final_topics, key=lambda x: x["message_count"], reverse=True)
 
     return sorted_topics

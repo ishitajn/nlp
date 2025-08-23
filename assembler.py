@@ -5,43 +5,33 @@ from collections import defaultdict
 def build_final_json(
     payload: Dict[str, Any],
     analysis_data: Dict[str, Any],
-    suggestions: Dict[str, List[str]],
+    suggestions: Dict[str, str], # Now receives stringified JSON
     geo: Dict[str, Any]
 ) -> Dict[str, Any]:
     
     # Extract data from the different engines
     context = analysis_data.get("contextual_features", {})
-    topics = analysis_data.get("identified_topics", [])
+    # This is the output of the scoring engine
+    categorized_topics = analysis_data.get("categorized_topics", {})
     behavior = analysis_data.get("behavioral_analysis", {})
 
-    # --- Reconstruct conversation_state to match spec ---
-
-    # Create topic_mapping from identified_topics
-    topic_mapping = defaultdict(lambda: {'keywords': set(), 'messages': []})
-    for topic in topics:
-        category = topic.get("category", "Uncategorized")
-        topic_mapping[category]['keywords'].update(topic.get("keywords", []))
-        topic_mapping[category]['messages'].extend(topic.get("messages", []))
-
-    # Convert sets to lists for JSON serialization
-    final_topic_mapping = {cat: {'keywords': list(kw), 'messages': msgs} for cat, {'keywords': kw, 'messages': msgs} in topic_mapping.items()}
-
-    # Get recency heatmap (rank 1 is most recent)
+    # --- Build conversation_state to match new spec ---
     topic_recency_heatmap = context.get("topic_recency", {})
     recent_topics = sorted(topic_recency_heatmap.keys(), key=lambda k: topic_recency_heatmap[k])
 
+    # Ensure all keys are present in the topics object, even if empty
+    final_topics_object = {
+        "focus": categorized_topics.get("focus", []),
+        "avoid": categorized_topics.get("avoid", []),
+        "neutral": categorized_topics.get("neutral", []),
+        "sensitive": categorized_topics.get("sensitive", []),
+        "fetish": categorized_topics.get("fetish", []),
+        "sexual": categorized_topics.get("sexual", [])
+    }
+
     conversation_state = {
-        "identified_topics": [
-            {
-                "topic": t.get("canonical_name"),
-                "category": t.get("category")
-            } for t in topics
-        ],
-        "topics": {}, # Meta-topic analysis - This is vague, will leave empty for now.
-        "recent_topics": recent_topics,
-        "topic_occurrence_heatmap": context.get("topic_saliency", {}),
-        "topic_recency_heatmap": topic_recency_heatmap,
-        "topic_mapping": final_topic_mapping
+        "topics": final_topics_object,
+        "recent_topics": recent_topics
     }
 
     # --- Build geo object ---

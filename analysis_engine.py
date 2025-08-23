@@ -5,6 +5,7 @@ from typing import List, Dict, Any
 from topic_engine import identify_topics
 from context_engine import extract_contextual_features
 from behavioral_engine import analyze_conversation_behavior
+from scoring_engine import score_and_categorize_topics
 
 def run_full_analysis(
     my_profile: str,
@@ -13,20 +14,15 @@ def run_full_analysis(
 ) -> Dict[str, Any]:
     """
     Orchestrates the full conversation analysis pipeline.
-    
-    1. Identifies topics from the conversation.
-    2. Extracts contextual features based on the conversation and topics.
-    3. Analyzes behavioral patterns.
-    4. Assembles the final analysis dictionary.
     """
     
-    # 1. Identify topics using the new topic engine
-    identified_topics = identify_topics(processed_turns)
+    # 1. Identify raw topic clusters
+    topic_clusters = identify_topics(processed_turns)
     
-    # 2. Extract contextual features using the new context engine
+    # 2. Extract contextual features (sentiment, recency, etc.)
     contextual_features = extract_contextual_features(
         conversation_turns=processed_turns,
-        identified_topics=identified_topics,
+        identified_topics=topic_clusters, # Use raw clusters here
         my_profile=my_profile,
         their_profile=their_profile
     )
@@ -34,12 +30,20 @@ def run_full_analysis(
     # 3. Analyze behavioral patterns
     behavioral_analysis = analyze_conversation_behavior(
         conversation_turns=processed_turns,
-        identified_topics=identified_topics
+        identified_topics=topic_clusters
     )
 
-    # 4. Assemble the final analysis object
+    # 4. Score and categorize topics using the new engine
+    categorized_topics = score_and_categorize_topics(
+        topic_clusters=topic_clusters,
+        conversation_turns=processed_turns,
+        context=contextual_features
+    )
+
+    # 5. Assemble the final analysis object
     final_analysis = {
-        "identified_topics": identified_topics,
+        "topic_clusters": topic_clusters, # Raw topics
+        "categorized_topics": categorized_topics, # New categorized topics
         "contextual_features": contextual_features,
         "behavioral_analysis": behavioral_analysis
     }

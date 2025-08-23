@@ -198,7 +198,7 @@ class AdvancedSuggestionEngine:
 
         return self._format_suggestions_for_output(top_5_suggestions)
 
-    def _format_suggestions_for_output(self, suggestions_with_reasons: List[Dict]) -> Dict[str, List[str]]:
+    def _format_suggestions_for_output(self, suggestions_with_reasons: List[Dict]) -> Dict[str, str]:
         suggested_topics = [s['topic'] for s in suggestions_with_reasons]
         suggestions = { "topics": [], "questions": [], "intimacy": [], "sexual": [] }
 
@@ -211,19 +211,19 @@ class AdvancedSuggestionEngine:
                 if len(category_suggestions) >= 5: break
 
                 topic_details = topic_details_map.get(canonical_topic_name)
-                if not topic_details: # Topic might be from graph, not current convo
-                    # Try to find a similar topic in the current conversation to get a category
+                if not topic_details:
                     if not self.topics: continue
-                    sims = cosine_similarity(embedder_service.encode_cached([canonical_topic_name]), embedder_service.encode_cached([t['canonical_name'] for t in self.topics]))[0]
-                    topic_details = self.topics[np.argmax(sims)]
+                    try:
+                        sims = cosine_similarity(embedder_service.encode_cached([canonical_topic_name]), embedder_service.encode_cached([t['canonical_name'] for t in self.topics]))[0]
+                        topic_details = self.topics[np.argmax(sims)]
+                    except Exception:
+                        continue # Skip if embedding fails
 
                 topic_category = topic_details.get("category", "Uncategorized")
                 strategies = SUGGESTION_STRATEGY_MAP.get(topic_category, {}).get(category, [])
                 if not strategies: continue
 
-                # Use a relevant keyword for the suggestion
                 keyword_to_use = random.choice(topic_details.get("keywords", [canonical_topic_name]))
-
                 strategy = random.choice(strategies)
                 template = random.choice(SUGGESTION_TEMPLATES[category][strategy])
                 suggestion = template.format(topic=keyword_to_use)
@@ -233,16 +233,21 @@ class AdvancedSuggestionEngine:
 
             suggestions[category] = list(category_suggestions)
 
-        # Fill with fallbacks if not enough suggestions were generated
+        # Fill with fallbacks if not enough suggestions were generated and format final output
+        final_suggestions = {}
         for category, items in suggestions.items():
-            if len(items) < 5:
-                needed = 5 - len(items)
+            if len(items) < 2: # Ensure at least 2 suggestions for the new format
+                needed = 2 - len(items)
                 fallback_templates = SUGGESTION_TEMPLATES[category]["fallback"]
                 for _ in range(needed):
                     suggestion = random.choice(fallback_templates).format(topic="your vibe")
                     if suggestion not in items:
                         items.append(suggestion)
-        return suggestions
+
+            # Truncate to 2, and format as a JSON string
+            final_suggestions[category] = json.dumps(items[:2])
+
+        return final_suggestions
 
 def generate_suggestions(
     analysis_data: Dict[str, Any],
