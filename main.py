@@ -1,6 +1,7 @@
 import asyncio
 import json
 
+import numpy as np
 import uvicorn
 from fastapi import FastAPI, HTTPException
 
@@ -27,6 +28,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def sanitize_numpy_types(obj):
+    if isinstance(obj, dict):
+        return {k: sanitize_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_numpy_types(i) for i in obj]
+    elif isinstance(obj, np.generic):
+        return obj.item()
+    return obj
 
 async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
     payload_dict = payload.dict(by_alias=True)
@@ -56,6 +65,7 @@ async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
         generate_suggestions,
         analysis_data=analysis_results,
         conversation_turns=cleaned_turns,
+        identified_topics=analysis_results.get('topic_clusters'),
         feedback=payload.feedback
     )
 
@@ -67,8 +77,12 @@ async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
         suggestions=final_suggestions,
         geo=geo_features
     )
+
+    final_json = sanitize_numpy_types(final_json)  # <-- Add this
+
     with open('analysis.json', 'a+') as f:
         f.write(json.dumps(final_json, indent=4)+'\n,\n')
+    #     f.write(str(final_json))
     return final_json
 
 @app.post("/analyze")

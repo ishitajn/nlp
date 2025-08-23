@@ -36,7 +36,7 @@ def run_full_analysis(
     # 4. Score and categorize topics using the new engine
     categorized_topics = score_and_categorize_topics(
         topic_clusters=topic_clusters,
-        conversation_turns=processed_turns,
+        # conversation_turns=processed_turns,
         context=contextual_features
     )
 
