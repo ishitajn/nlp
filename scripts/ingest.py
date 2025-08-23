@@ -1,9 +1,10 @@
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+print("Sys path:", sys.path)
 
 import yaml, json, os
-from topicbank.adapters import fetch_html_list, fetch_pdf_lines
+from topicbank.adapters import fetch_html_list, fetch_pdf_lines, load_csv
 from topicbank.safety import safe_language, hard_block, explicit_level
 from topicbank.normalize import normalize_item
 from topicbank.tagging import tag_topics
@@ -20,7 +21,8 @@ def run_ingest(sources_cfg="config/sources.yaml", safety_cfg="config/safety.yaml
 
     all_items = []
     for s in sources:
-        name = s["name"]; cat = s.get("category_hint"); typ = s["type"]; url = s["url"]
+        name = s["name"]; cat = s.get("category_hint"); typ = s["type"]
+        url = s.get("url") # Use .get() for optional keys
         raws = []
         print(f"Ingesting from {typ} source: {name}")
         try:
@@ -28,6 +30,8 @@ def run_ingest(sources_cfg="config/sources.yaml", safety_cfg="config/safety.yaml
                 raws = fetch_html_list(url, name)
             elif typ == "pdf":
                 raws = fetch_pdf_lines(url, name)
+            elif typ == "csv":
+                raws = load_csv(s["path"], text_col="text", source_name=name)
             else:
                 print(f"  -> Skipping unknown source type: {typ}")
                 continue
@@ -47,7 +51,10 @@ def run_ingest(sources_cfg="config/sources.yaml", safety_cfg="config/safety.yaml
             expl = explicit_level(t, lvl2, lvl3)
             if not s.get("explicit_allowed", False) and expl >= 2:
                 continue
-            item = normalize_item(r, category_hint=cat, expl=expl, tags=tag_topics(t))
+
+            # Also tag the ingested item itself
+            tags = tag_topics(t)
+            item = normalize_item(r, category_hint=cat, expl=expl, tags=tags)
             all_items.append(item)
             processed_count += 1
         print(f"  -> Processed {processed_count} valid items.")

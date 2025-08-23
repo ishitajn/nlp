@@ -1,24 +1,46 @@
 sources:
-  - name: reddit_massive_date_questions
-    type: html
-    url: "https://www.reddit.com/r/dating_advice/comments/hcq28r/massive_list_of_date_questions_and_conversation/"
-    category_hint: dating
-    explicit_allowed: true
-
-  - name: esther_perel_sexuality_pdf
-    type: pdf
-    url: "https://static1.squarespace.com/static/54c24381e4b01ce51167623a/t/5915159a46c3c4bb47744a39/1494554010875/Esther+Perel+Sex+Conversation+Starters.pdf"
-    category_hint: sexual
-    explicit_allowed: true
-
-  - name: winshape_280_couples
-    type: html
-    url: "https://marriage.winshape.org/resource/conversation-starters-for-date-night/"
-    category_hint: romantic
+  - name: fitness_dating_csv
+    type: csv
+    path: "data/raw/fitness_dating.csv"
+    category_hint: "fitness" # This will be used as a fallback
     explicit_allowed: false
-
-  - name: berkeley_36_questions
+  - name: csw_250_starters
     type: html
-    url: "https://ggia.berkeley.edu/practice/36_questions_for_increasing_closeness"
-    category_hint: intimacy
+    url: "https://conversationstartersworld.com/250-conversation-starters/"
+    category_hint: "dating"
+    explicit_allowed: false
+  - name: csw_get_to_know
+    type: html
+    url: "https://conversationstartersworld.com/questions-to-get-to-know-someone/"
+    category_hint: "intimacy"
+    explicit_allowed: false
+  - name: csw_deep_topics
+    type: html
+    url: "https://conversationstartersworld.com/deep-conversation-topics/"
+    category_hint: "deep"
+    explicit_allowed: false
+  - name: csw_fun_questions
+    type: html
+    url: "https://conversationstartersworld.com/fun-questions-to-ask/"
+    category_hint: "playful"
+    explicit_allowed: false
+  - name: csw_first_date
+    type: html
+    url: "https://conversationstartersworld.com/first-date-questions/"
+    category_hint: "dating"
+    explicit_allowed: false
+  - name: csw_for_couples
+    type: html
+    url: "https://conversationstartersworld.com/questions-for-couples/"
+    category_hint: "romantic"
+    explicit_allowed: true
+  - name: csw_philosophical
+    type: html
+    url: "https://conversationstartersworld.com/philosophical-questions/"
+    category_hint: "deep"
+    explicit_allowed: false
+  - name: csw_hypothetical
+    type: html
+    url: "https://conversationstartersworld.com/hypothetical-questions/"
+    category_hint: "playful"
     explicit_allowed: false

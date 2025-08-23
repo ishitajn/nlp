@@ -11,8 +11,12 @@ def fetch_html_list(url, source_name, li_selectors=("li","p")):
     lines = []
     for sel in li_selectors:
         for el in soup.select(sel):
-            t = re.sub(r"\s+", " ", el.get_text(" ", strip=True))
-            if t and len(t) > 6:
+            raw_text = el.get_text(" ", strip=True)
+            # Remove question numbers like "1. ", "2) ", etc. and normalize whitespace
+            t = re.sub(r"^\d+[\.\)]\s*", "", raw_text).strip()
+            t = re.sub(r"\s+", " ", t)
+
+            if t and len(t) > 15 and '?' in t: # Ensure it's a question and not too short
                 lines.append({
                     "id": _make_id(source_name, t),
                     "text": t,
