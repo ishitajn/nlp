@@ -32,7 +32,7 @@ def _calculate_keyword_centrality(keywords: List[str], cluster_centroid: np.ndar
     if not keyword_embeddings.any():
         return 0.0
     similarities = cosine_similarity(keyword_embeddings, cluster_centroid.reshape(1, -1))
-    return np.mean(similarities) if similarities.any() else 0.0
+    return float(np.mean(similarities)) if similarities.any() else 0.0
 
 def score_and_categorize_topics(
     topic_clusters: List[Dict[str, Any]],
@@ -47,14 +47,6 @@ def score_and_categorize_topics(
 
     max_cluster_size = max(len(c.get("messages", [])) for c in topic_clusters) or 1
     keyword_embedding_cache = {}
-
-    # Pre-calculate cluster centroids for efficiency
-    for cluster in topic_clusters:
-        if "messages" in cluster and cluster["messages"]:
-            message_embeddings = embedder_service.encode_cached(cluster["messages"])
-            cluster["centroid"] = np.mean(message_embeddings, axis=0) if message_embeddings.any() else None
-        else:
-            cluster["centroid"] = None
 
     for cluster in topic_clusters:
         topic_name = cluster.get("canonical_name", "Unknown Topic")

@@ -76,8 +76,8 @@ def extract_contextual_features(
     # --- 5. Speaker Roles and Turn Position ---
     # This information is already in the `conversation_turns` objects and can be used directly
     # by the suggestion engine. We can add aggregated stats here if needed.
-    user_turn_count = sum(1 for turn in conversation_turns if turn.get('sender') == 'user')
-    their_turn_count = sum(1 for turn in conversation_turns if turn.get('sender') != 'user')
+    user_turn_count = sum(1 for turn in conversation_turns if turn.get('role') == 'user')
+    their_turn_count = sum(1 for turn in conversation_turns if turn.get('role') == 'assistant')
 
     analysis["speaker_metrics"] = {
         "user_turn_count": user_turn_count,

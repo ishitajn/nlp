@@ -8,6 +8,22 @@ from rapidfuzz import fuzz
 from sklearn.metrics.pairwise import cosine_similarity, cosine_distances
 
 from embedder import embedder_service
+from preprocessor import preprocess_text
+
+def _get_canonical_name(keywords: List[str], centroid: np.ndarray) -> str:
+    """Chooses the most central keyword as the canonical name for a topic."""
+    if not keywords:
+        return "Unknown Topic"
+    if centroid is None:
+        return keywords[0]
+
+    keyword_embeddings = embedder_service.encode_cached(keywords)
+    if not keyword_embeddings.any():
+        return keywords[0]
+
+    similarities = cosine_similarity(keyword_embeddings, centroid.reshape(1, -1))
+    most_central_keyword_index = int(np.argmax(similarities))
+    return keywords[most_central_keyword_index]
 
 def _deduplicate_and_merge_topics(
     topics: List[Dict[str, Any]],
@@ -72,6 +88,11 @@ def identify_topics(conversation_turns: List[Dict[str, Any]]) -> List[Dict[str, 
     if not conversation_turns:
         return []
 
+    # --- 1. Preprocess text for each turn ---
+    for turn in conversation_turns:
+        if "content" in turn:
+            turn["processed_content"] = preprocess_text(turn["content"])
+
     # Use the 'processed_content' from the preprocessor
     processed_texts = [turn.get('processed_content', '') for turn in conversation_turns]
     # Keep a map to the original turn object
@@ -99,17 +120,29 @@ def identify_topics(conversation_turns: List[Dict[str, Any]]) -> List[Dict[str, 
     # Extract keywords and form initial topics
     kw_extractor = yake.KeywordExtractor(lan="en", n=3, dedupLim=0.9, top=5, features=None)
     initial_topics = []
+
+    # Get the embeddings for the texts that were actually clustered
+    clustered_indices = np.where(cluster_labels != -1)[0]
+    clustered_embeddings = embeddings[clustered_indices]
+    clustered_labels = cluster_labels[clustered_indices]
+
     for label, texts in clustered_texts.items():
         if not texts: continue
         full_cluster_text = " ".join(texts)
         keywords = [kw for kw, score in kw_extractor.extract_keywords(full_cluster_text)]
+
+        # Calculate centroid for the current cluster
+        indices_in_cluster = np.where(clustered_labels == label)[0]
+        centroid = np.mean(clustered_embeddings[indices_in_cluster], axis=0)
+
         # Map back to original messages
         messages = [text_to_turn_map[text]['content'] for text in texts]
         initial_topics.append({
             "topic_id": int(label),
             "keywords": keywords,
             "messages": messages,
-            "message_turns": [text_to_turn_map[text] for text in texts] # Keep original turn objects
+            "message_turns": [text_to_turn_map[text] for text in texts], # Keep original turn objects
+            "centroid": centroid
         })
 
     # Deduplicate topics
@@ -127,8 +160,8 @@ def identify_topics(conversation_turns: List[Dict[str, Any]]) -> List[Dict[str, 
     for topic in deduplicated_topics:
         if not topic["keywords"]: continue
 
-        # Simple canonicalization: use the first keyword
-        canonical_name = topic["keywords"][0]
+        # Use the new function to get a better canonical name
+        canonical_name = _get_canonical_name(topic["keywords"], topic.get("centroid"))
 
         final_topics.append({
             "canonical_name": canonical_name,
@@ -136,7 +169,8 @@ def identify_topics(conversation_turns: List[Dict[str, Any]]) -> List[Dict[str, 
             "category": "Uncategorized", # will be filled by taxonomy mapping
             "message_count": len(topic["messages"]),
             "messages": topic["messages"],
-            "message_turns": topic["message_turns"]
+            "message_turns": topic["message_turns"],
+            "centroid": topic.get("centroid") # Pass the centroid along
         })
 
     # Sort by message count

@@ -13,8 +13,8 @@ from embedder import embedder_service
 from model import Feedback
 
 # Constants
-GRAPH_DATA_PATH = "app/data/transition_graph.json"
-METADATA_PATH = "app/data/topic_metadata.json"
+GRAPH_DATA_PATH = "data/transition_graph.json"
+METADATA_PATH = "data/topic_metadata.json"
 
 # ==============================================================================
 # == THE DEFINITIVE, UNCENSORED & EXPANDED SUGGESTION BANK                    ==
@@ -49,13 +49,14 @@ SUGGESTION_TEMPLATES = {
 # ==============================================================================
 # == THE DEFINITIVE SUGGESTION STRATEGY MAP                                   ==
 # ==============================================================================
-# This map now uses the categories from topic_engine.py's DATING_TAXONOMY
+# This map uses the categories from scoring_engine.py
 SUGGESTION_STRATEGY_MAP = {
-    "Work & Ambition": {"topics": ["rapport"], "questions": ["rapport"], "intimacy": ["validation"], "sexual": ["low_tension"]},
-    "Deeper Connection": {"topics": ["rapport"], "questions": ["rapport"], "intimacy": ["connection"], "sexual": ["low_tension"]},
-    "Hobbies & Interests": {"topics": ["rapport", "contextual"], "questions": ["contextual"], "intimacy": ["contextual"], "sexual": ["medium_tension"]},
-    "Flirting": {"topics": ["escalation"], "questions": ["escalation"], "intimacy": ["validation", "contextual"], "sexual": ["medium_tension", "high_tension"]},
-    "Logistics": {"topics": ["escalation"], "questions": ["escalation"], "intimacy": ["connection"], "sexual": ["high_tension"]},
+    "sensitive": {"topics": ["rapport"], "questions": ["rapport"], "intimacy": ["validation", "connection"]},
+    "fetish": {"sexual": ["medium_tension", "high_tension"]},
+    "sexual": {"topics": ["escalation"], "questions": ["escalation"], "sexual": ["low_tension", "medium_tension"]},
+    "focus": {"topics": ["contextual", "rapport"], "questions": ["contextual", "rapport"], "intimacy": ["contextual"]},
+    "avoid": {"topics": ["fallback"], "questions": ["fallback"]}, # Suggest changing the topic
+    "neutral": {"topics": ["rapport", "fallback"], "questions": ["rapport", "fallback"], "intimacy": ["fallback"]},
     "Uncategorized": {"topics": ["fallback"], "questions": ["fallback"], "intimacy": ["fallback"], "sexual": ["fallback"]},
 }
 
@@ -229,7 +230,7 @@ class AdvancedSuggestionEngine:
 
         return self._format_suggestions_for_output(top_5_suggestions)
 
-    def _format_suggestions_for_output(self, suggestions_with_reasons: List[Dict]) -> Dict[str, str]:
+    def _format_suggestions_for_output(self, suggestions_with_reasons: List[Dict]) -> Dict[str, List[str]]:
         suggested_topics = [s['topic'] for s in suggestions_with_reasons]
         suggestions = { "topics": [], "questions": [], "intimacy": [], "sexual": [] }
 
@@ -250,8 +251,11 @@ class AdvancedSuggestionEngine:
                     topic_details = {"category": topic_category, "keywords": [canonical_topic_name]}
                 else:
                     topic_category = topic_details.get("category", "Uncategorized")
-                strategies = SUGGESTION_STRATEGY_MAP.get(topic_category, {}).get(category, [])
-                if not strategies: continue
+
+                # Look up strategy from the map, default to fallback
+                strategies = SUGGESTION_STRATEGY_MAP.get(topic_category, {}).get(category, ["fallback"])
+                if not strategies:
+                    strategies = ["fallback"]
 
                 keyword_to_use = random.choice(topic_details.get("keywords", [canonical_topic_name]))
                 strategy = random.choice(strategies)
@@ -263,19 +267,20 @@ class AdvancedSuggestionEngine:
 
             suggestions[category] = list(category_suggestions)
 
-        # Fill with fallbacks if not enough suggestions were generated and format final output
+        # Fill with fallbacks if not enough suggestions were generated
         final_suggestions = {}
         for category, items in suggestions.items():
-            if len(items) < 2: # Ensure at least 2 suggestions for the new format
-                needed = 2 - len(items)
+            # Ensure at least 5 suggestions, filling with fallbacks if necessary
+            if len(items) < 5:
+                needed = 5 - len(items)
                 fallback_templates = SUGGESTION_TEMPLATES[category]["fallback"]
                 for _ in range(needed):
                     suggestion = random.choice(fallback_templates).format(topic="your vibe")
                     if suggestion not in items:
                         items.append(suggestion)
 
-            # Truncate to 2, and format as a JSON string
-            final_suggestions[category] = json.dumps(items[:2])
+            # Return a list of strings, not a JSON dump of a list
+            final_suggestions[category] = items[:5]
 
         return final_suggestions
 

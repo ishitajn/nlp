@@ -1,6 +1,6 @@
 # In behavioral_engine.py
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -44,7 +44,7 @@ def _check_semantic_similarity(text_embedding: np.ndarray, concept_name: str) ->
         return False
 
     similarity = cosine_similarity(text_embedding.reshape(1, -1), concept_embedding.reshape(1, -1))[0][0]
-    return similarity > SIMILARITY_THRESHOLDS.get(concept_name, 0.6)
+    return bool(similarity > SIMILARITY_THRESHOLDS.get(concept_name, 0.6))
 
 def analyze_conversation_behavior(
     conversation_turns: List[Dict[str, Any]],
@@ -55,11 +55,6 @@ def analyze_conversation_behavior(
         return {}
 
     # --- Pre-process turns for robust sender and embedding info ---
-    has_sender_key = any('sender' in turn for turn in conversation_turns)
-    if not has_sender_key:
-        for i, turn in enumerate(conversation_turns):
-            turn['sender'] = 'user' if (i % 2) != 0 else 'match'
-
     all_contents = [turn.get('content', '') for turn in conversation_turns]
     all_embeddings = embedder_service.encode_cached(all_contents)
     for i, turn in enumerate(conversation_turns):
@@ -71,16 +66,20 @@ def analyze_conversation_behavior(
     last_turn: Optional[Dict] = conversation_turns[-1]
 
     for turn in reversed(conversation_turns):
-        sender = turn.get('sender', 'match').lower()
-        if sender == 'user' and not last_user_turn: last_user_turn = turn
-        if sender != 'user' and not last_match_turn: last_match_turn = turn
-        if last_user_turn and last_match_turn: break
+        # Use 'role' instead of 'sender'. 'assistant' is the other person.
+        role = turn.get('role', 'assistant').lower()
+        if role == 'user' and not last_user_turn:
+            last_user_turn = turn
+        elif role == 'assistant' and not last_match_turn:
+            last_match_turn = turn
+        if last_user_turn and last_match_turn:
+            break
 
     # --- Basic Last Message Info ---
     analysis = {
         "last_message_from_user": last_user_turn.get('content') if last_user_turn else None,
         "last_message_from_match": last_match_turn.get('content') if last_match_turn else None,
-        "Last_message_from": last_turn.get('sender') if last_turn else None,
+        "Last_message_from": last_turn.get('role') if last_turn else None,
     }
 
     # --- Semantic Analysis of Last Match Message ---
@@ -90,7 +89,7 @@ def analyze_conversation_behavior(
                                                  _check_semantic_similarity(last_match_embedding, "TIME_REFERENCE")
 
     # --- Time-based Analysis (Remains Rule-Based as per assumption) ---
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     one_day_ago = now - timedelta(days=1)
     two_days_ago = now - timedelta(days=2)
     seven_days_ago = now - timedelta(days=7)
@@ -104,12 +103,12 @@ def analyze_conversation_behavior(
         turn_time = _parse_timestamp(turn.get('timestamp'))
         if not turn_time: continue
 
-        sender = turn.get('sender', 'unknown').lower()
-        if sender == 'user':
+        role = turn.get('role', 'assistant').lower()
+        if role == 'user':
             if turn_time > one_day_ago: user_active_recently = True
             if turn_time > two_days_ago and _check_semantic_similarity(turn.get('embedding'), "GREETING"):
                 analysis['last_user_greeted'] = True
-        else:
+        elif role == 'assistant':
             if turn_time > one_day_ago: match_active_recently = True
 
     # --- Conversation Flags ---

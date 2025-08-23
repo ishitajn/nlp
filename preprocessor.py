@@ -1,18 +1,6 @@
 # In preprocessor.py
 import re
-import spacy
-
-# Attempt to import the spaCy model instance from analysis_engine
-try:
-    from analysis_engine import nlp
-    print("Preprocessor: Successfully imported 'nlp' model from analysis_engine.")
-except (ImportError, ModuleNotFoundError):
-    print("Preprocessor: Could not import 'nlp' model. Loading a new spaCy model.")
-    try:
-        nlp = spacy.load("en_core_web_sm")
-    except OSError:
-        print("Spacy model 'en_core_web_sm' not found. Please run: python -m spacy download en_core_web_sm")
-        nlp = None
+from services import nlp
 
 # Custom stopwords, including common chat slang and conversational filler
 CUSTOM_STOPWORDS = {

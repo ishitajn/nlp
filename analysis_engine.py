@@ -40,10 +40,24 @@ def run_full_analysis(
         context=contextual_features
     )
 
-    # 5. Assemble the final analysis object
+    # 5. Integrate categorization back into topic clusters
+    # Create a reverse map from topic name to its category
+    topic_to_category_map = {
+        topic_name: category
+        for category, topic_list in categorized_topics.items()
+        for topic_name in topic_list
+    }
+
+    # Update the category for each topic in the original list
+    for topic in topic_clusters:
+        topic_name = topic.get("canonical_name")
+        if topic_name in topic_to_category_map:
+            topic["category"] = topic_to_category_map[topic_name]
+
+    # 6. Assemble the final analysis object
     final_analysis = {
-        "topic_clusters": topic_clusters, # Raw topics
-        "categorized_topics": categorized_topics, # New categorized topics
+        "topic_clusters": topic_clusters, # Now with categories
+        "categorized_topics": categorized_topics,
         "contextual_features": contextual_features,
         "behavioral_analysis": behavioral_analysis
     }
