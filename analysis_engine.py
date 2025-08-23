@@ -9,8 +9,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 from embedder import embedder_service
-from topic_discoverer import discover_topics
-from suggestion_generator import generate_topic_suggestions
+from topic_engine_v2 import run_topic_engine
 
 try:
     nlp = spacy.load("en_core_web_trf")
@@ -100,19 +99,6 @@ def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str,
     full_text_for_rules = f"{my_profile} {their_profile} {conversation_history_str}"
     full_text_lower = full_text_for_rules.lower()
     doc = nlp(conversation_history_str)
-
-    # --- New: Topic Discovery ---
-    topic_discovery_results = discover_topics(conversation_history_str)
-    discovered_topics = topic_discovery_results["labeled_clusters"]
-    all_keyphrases = topic_discovery_results["all_keyphrases"]
-
-    # --- New: Suggestion Generation ---
-    topic_suggestions = generate_topic_suggestions(
-        discovered_topics=discovered_topics,
-        existing_keyphrases=all_keyphrases,
-        my_profile=my_profile,
-        their_profile=their_profile
-    )
     
     # --- 1. Concept-Centric Semantic Search ---
     concept_map = _map_conversation_to_concepts(doc)
@@ -149,12 +135,16 @@ def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str,
     sorted_by_recency = sorted(last_occurrence.items(), key=lambda item: item[1], reverse=True)
     recency_heatmap = {topic: rank + 1 for rank, (topic, index) in enumerate(sorted_by_recency[:15])}
 
+    # --- New V2 Topic Engine ---
+    v2_topic_results = run_topic_engine(turns)
+
     # --- 4. Build the Final Conversation State ---
     focus_topics = list(categorized_raw_topics["neutral"] | categorized_raw_topics["sexual"] | categorized_raw_topics["intimacy"])
     top_20_topics = [t for t, c in Counter(focus_topics).most_common(20)]
     inside_jokes = [chunk.text for chunk in doc.noun_chunks if chunk.root.pos_ == 'PROPN' and len(chunk.text) > 2 and conversation_history_str.count(chunk.text) > 1]
 
     conversation_state = {
+        "v2_topics": v2_topic_results,
         "topics": {
             "focus": top_20_topics, "avoid": [],
             "neutral": [t for t in categorized_raw_topics["neutral"] if t in top_20_topics],
@@ -166,8 +156,7 @@ def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str,
         "recent_topics": list(recency_heatmap.keys()),
         "topic_occurrence_heatmap": occurrence_heatmap,
         "topic_recency_heatmap": recency_heatmap,
-        "topic_mapping": {k: v for k, v in topic_mapping.items() if v},
-        "discovered_topics": discovered_topics
+        "topic_mapping": {k: v for k, v in topic_mapping.items() if v}
     }
 
     # --- 5. Schema-Based Tagging (for Structure) ---
@@ -212,6 +201,5 @@ def run_full_analysis(my_profile: str, their_profile: str, turns: List[Dict[str,
 
     analysis["sentiment_analysis"] = { "overall": sentiment, "compound_score": compound_score }
     analysis["engagement_metrics"] = { "level": engagement, "pace": pace, "flirtation_level": flirtation_level }
-    analysis["topic_suggestions"] = topic_suggestions
 
     return analysis

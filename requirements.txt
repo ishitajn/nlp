@@ -10,3 +10,7 @@ torch
 sentence-transformers
 scikit-learn
 accelerate
+optimum[onnxruntime]
+hdbscan
+yake
+nltk
