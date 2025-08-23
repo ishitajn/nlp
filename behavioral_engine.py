@@ -5,25 +5,44 @@ from typing import List, Dict, Any, Optional
 # Define keyword lists for various checks
 GREETING_KEYWORDS = [r'\b(h(i|ey|ello)|yo|sup|wassup)\b']
 FLIRT_KEYWORDS = [r'\b(cute|hot|sexy|beautiful|gorgeous|kiss|cuddle|desire|irresistible|captivating|wink|😉|😏)\b']
-TIME_KEYWORDS = [r'\b(today|tonight|tomorrow|weekend|week|day|date|morning|afternoon|evening|night|when)\b']
-LOCATION_KEYWORDS = [r'\b(place|area|neighborhood|city|country|location|distance|close|far|meet|here|there)\b']
+TIME_KEYWORDS = [r'\b(today|tonight|tomorrow|weekends?|weeks?|days?|dates?|mornings?|afternoons?|evenings?|nights?|when)\b']
+LOCATION_KEYWORDS = [r'\b(place|area|neighborhood|city|country|locations?|distance|close|far|meet|here|there)\b']
 FALLBACK_KEYWORDS = {
     "idk": r'\b(idk|i don\'?t know)\b',
     "lol": r'\b(lol|lmao|haha|hehe)\b',
     "maybe": r'\b(maybe|perhaps|possibly|we\'?ll see)\b'
 }
+QUESTION_REGEX = re.compile(r'^\s*(what|who|when|where|why|how|do|does|did|is|are|was|were|can|could|should|would|will|have|has|don\'t|aren\'t|isn\'t|can\'t|won\'t)\b', re.IGNORECASE)
 
 def _parse_timestamp(ts_str: Optional[str]) -> Optional[datetime]:
-    """Safely parse an ISO 8601 timestamp string."""
-    if not ts_str:
+    """Safely parse a timestamp string from a few common formats."""
+    if not ts_str or not isinstance(ts_str, str):
         return None
+
+    # Format 1: ISO 8601 with 'Z'
+    if ts_str.endswith('Z'):
+        ts_str = ts_str[:-1] + '+00:00'
+
+    # Common formats to try
+    formats_to_try = [
+        "%Y-%m-%dT%H:%M:%S.%f%z",  # ISO 8601 with microseconds
+        "%Y-%m-%dT%H:%M:%S%z",      # ISO 8601 without microseconds
+        "%Y-%m-%d %H:%M:%S",         # Common DB format
+    ]
+
+    for fmt in formats_to_try:
+        try:
+            return datetime.strptime(ts_str, fmt)
+        except (ValueError, TypeError):
+            continue
+
+    # Fallback for basic ISO format without timezone awareness
     try:
-        # Handle 'Z' suffix for UTC
-        if ts_str.endswith('Z'):
-            ts_str = ts_str[:-1] + '+00:00'
         return datetime.fromisoformat(ts_str)
     except (ValueError, TypeError):
-        return None
+        pass
+
+    return None
 
 def analyze_conversation_behavior(
     conversation_turns: List[Dict[str, Any]],
@@ -33,13 +52,20 @@ def analyze_conversation_behavior(
     if not conversation_turns:
         return {}
 
+    # --- Pre-process turns to add robust sender info ---
+    has_sender_key = any('sender' in turn for turn in conversation_turns)
+    if not has_sender_key:
+        # If no sender key exists, assume alternating turns, starting with match
+        for i, turn in enumerate(conversation_turns):
+            turn['sender'] = 'user' if (i % 2) != 0 else 'match'
+
     # --- Initialize variables ---
     last_user_turn: Optional[Dict] = None
     last_match_turn: Optional[Dict] = None
-    last_turn: Optional[Dict] = conversation_turns[-1]
+    last_turn: Optional[Dict] = conversation_turns[-1] if conversation_turns else None
 
     for turn in reversed(conversation_turns):
-        sender = turn.get('sender', 'unknown').lower()
+        sender = turn.get('sender', 'match').lower() # Default to 'match' if key is present but empty
         if sender == 'user' and not last_user_turn:
             last_user_turn = turn
         if sender != 'user' and not last_match_turn:
@@ -56,7 +82,7 @@ def analyze_conversation_behavior(
 
     # --- Last Match Message Analysis ---
     match_last_message_content = (analysis['last_message_from_match'] or "").lower()
-    analysis['match_last_message_has_question'] = '?' in match_last_message_content
+    analysis['match_last_message_has_question'] = '?' in match_last_message_content or bool(QUESTION_REGEX.search(match_last_message_content))
     analysis['Match_last_message_geo_context'] = any(re.search(p, match_last_message_content) for p in TIME_KEYWORDS + LOCATION_KEYWORDS)
 
     # --- Time-based Analysis ---
