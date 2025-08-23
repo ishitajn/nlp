@@ -1,48 +1,50 @@
-import re
+# In behavioral_engine.py
+import numpy as np
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
+from sklearn.metrics.pairwise import cosine_similarity
 
-# Define keyword lists for various checks
-GREETING_KEYWORDS = [r'\b(h(i|ey|ello)|yo|sup|wassup)\b']
-FLIRT_KEYWORDS = [r'\b(cute|hot|sexy|beautiful|gorgeous|kiss|cuddle|desire|irresistible|captivating|wink|😉|😏)\b']
-TIME_KEYWORDS = [r'\b(today|tonight|tomorrow|weekends?|weeks?|days?|dates?|mornings?|afternoons?|evenings?|nights?|when)\b']
-LOCATION_KEYWORDS = [r'\b(place|area|neighborhood|city|country|locations?|distance|close|far|meet|here|there)\b']
-FALLBACK_KEYWORDS = {
-    "idk": r'\b(idk|i don\'?t know)\b',
-    "lol": r'\b(lol|lmao|haha|hehe)\b',
-    "maybe": r'\b(maybe|perhaps|possibly|we\'?ll see)\b'
+from embedder import embedder_service
+from semantic_concepts import CONCEPT_EMBEDDINGS
+
+# --- Constants ---
+# Thresholds for deciding if a message matches a semantic concept.
+SIMILARITY_THRESHOLDS = {
+    "GREETING": 0.70,
+    "ASKING_A_QUESTION": 0.65,
+    "FLIRTATION": 0.60,
+    "TIME_REFERENCE": 0.60,
+    "LOCATION_REFERENCE": 0.60,
+    "DISENGAGEMENT": 0.55,
+    "PLANNING_LOGISTICS": 0.65
 }
-QUESTION_REGEX = re.compile(r'^\s*(what|who|when|where|why|how|do|does|did|is|are|was|were|can|could|should|would|will|have|has|don\'t|aren\'t|isn\'t|can\'t|won\'t)\b', re.IGNORECASE)
 
 def _parse_timestamp(ts_str: Optional[str]) -> Optional[datetime]:
     """Safely parse a timestamp string from a few common formats."""
     if not ts_str or not isinstance(ts_str, str):
         return None
-
-    # Format 1: ISO 8601 with 'Z'
     if ts_str.endswith('Z'):
         ts_str = ts_str[:-1] + '+00:00'
-
-    # Common formats to try
-    formats_to_try = [
-        "%Y-%m-%dT%H:%M:%S.%f%z",  # ISO 8601 with microseconds
-        "%Y-%m-%dT%H:%M:%S%z",      # ISO 8601 without microseconds
-        "%Y-%m-%d %H:%M:%S",         # Common DB format
-    ]
-
+    formats_to_try = ["%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S"]
     for fmt in formats_to_try:
         try:
             return datetime.strptime(ts_str, fmt)
         except (ValueError, TypeError):
             continue
-
-    # Fallback for basic ISO format without timezone awareness
     try:
         return datetime.fromisoformat(ts_str)
     except (ValueError, TypeError):
         pass
-
     return None
+
+def _check_semantic_similarity(text_embedding: np.ndarray, concept_name: str) -> bool:
+    """Checks if a text embedding is similar to a pre-computed concept embedding."""
+    concept_embedding = CONCEPT_EMBEDDINGS.get(concept_name)
+    if concept_embedding is None or text_embedding is None or not hasattr(text_embedding, 'reshape'):
+        return False
+
+    similarity = cosine_similarity(text_embedding.reshape(1, -1), concept_embedding.reshape(1, -1))[0][0]
+    return similarity > SIMILARITY_THRESHOLDS.get(concept_name, 0.6)
 
 def analyze_conversation_behavior(
     conversation_turns: List[Dict[str, Any]],
@@ -52,26 +54,27 @@ def analyze_conversation_behavior(
     if not conversation_turns:
         return {}
 
-    # --- Pre-process turns to add robust sender info ---
+    # --- Pre-process turns for robust sender and embedding info ---
     has_sender_key = any('sender' in turn for turn in conversation_turns)
     if not has_sender_key:
-        # If no sender key exists, assume alternating turns, starting with match
         for i, turn in enumerate(conversation_turns):
             turn['sender'] = 'user' if (i % 2) != 0 else 'match'
+
+    all_contents = [turn.get('content', '') for turn in conversation_turns]
+    all_embeddings = embedder_service.encode_cached(all_contents)
+    for i, turn in enumerate(conversation_turns):
+        turn['embedding'] = all_embeddings[i] if i < len(all_embeddings) else None
 
     # --- Initialize variables ---
     last_user_turn: Optional[Dict] = None
     last_match_turn: Optional[Dict] = None
-    last_turn: Optional[Dict] = conversation_turns[-1] if conversation_turns else None
+    last_turn: Optional[Dict] = conversation_turns[-1]
 
     for turn in reversed(conversation_turns):
-        sender = turn.get('sender', 'match').lower() # Default to 'match' if key is present but empty
-        if sender == 'user' and not last_user_turn:
-            last_user_turn = turn
-        if sender != 'user' and not last_match_turn:
-            last_match_turn = turn
-        if last_user_turn and last_match_turn:
-            break
+        sender = turn.get('sender', 'match').lower()
+        if sender == 'user' and not last_user_turn: last_user_turn = turn
+        if sender != 'user' and not last_match_turn: last_match_turn = turn
+        if last_user_turn and last_match_turn: break
 
     # --- Basic Last Message Info ---
     analysis = {
@@ -80,15 +83,16 @@ def analyze_conversation_behavior(
         "Last_message_from": last_turn.get('sender') if last_turn else None,
     }
 
-    # --- Last Match Message Analysis ---
-    match_last_message_content = (analysis['last_message_from_match'] or "").lower()
-    analysis['match_last_message_has_question'] = '?' in match_last_message_content or bool(QUESTION_REGEX.search(match_last_message_content))
-    analysis['Match_last_message_geo_context'] = any(re.search(p, match_last_message_content) for p in TIME_KEYWORDS + LOCATION_KEYWORDS)
+    # --- Semantic Analysis of Last Match Message ---
+    last_match_embedding = last_match_turn.get('embedding') if last_match_turn else None
+    analysis['match_last_message_has_question'] = _check_semantic_similarity(last_match_embedding, "ASKING_A_QUESTION")
+    analysis['Match_last_message_geo_context'] = _check_semantic_similarity(last_match_embedding, "LOCATION_REFERENCE") or \
+                                                 _check_semantic_similarity(last_match_embedding, "TIME_REFERENCE")
 
-    # --- Time-based Analysis ---
+    # --- Time-based Analysis (Remains Rule-Based as per assumption) ---
     now = datetime.utcnow()
-    two_days_ago = now - timedelta(days=2)
     one_day_ago = now - timedelta(days=1)
+    two_days_ago = now - timedelta(days=2)
     seven_days_ago = now - timedelta(days=7)
     thirty_days_ago = now - timedelta(days=30)
 
@@ -101,59 +105,41 @@ def analyze_conversation_behavior(
         if not turn_time: continue
 
         sender = turn.get('sender', 'unknown').lower()
-        content = turn.get('content', '').lower()
-
         if sender == 'user':
-            if turn_time > one_day_ago:
-                user_active_recently = True
-            if turn_time > two_days_ago and any(re.search(p, content) for p in GREETING_KEYWORDS):
+            if turn_time > one_day_ago: user_active_recently = True
+            if turn_time > two_days_ago and _check_semantic_similarity(turn.get('embedding'), "GREETING"):
                 analysis['last_user_greeted'] = True
-        else: # Match
-            if turn_time > one_day_ago:
-                match_active_recently = True
+        else:
+            if turn_time > one_day_ago: match_active_recently = True
 
     # --- Conversation Flags ---
     flags = {}
     flags['user_active_recently'] = user_active_recently
     flags['match_active_recently'] = match_active_recently
 
-    # Last message day classification
     last_turn_time = _parse_timestamp(last_turn.get('timestamp')) if last_turn else None
-    if not last_turn_time:
-        flags['Last_message_day'] = "Unknown"
-    elif len(conversation_turns) < 5:
-        flags['Last_message_day'] = "New Conversation"
-    elif last_turn_time > two_days_ago:
-        flags['Last_message_day'] = "Active Conversation"
-    elif last_turn_time > seven_days_ago:
-        flags['Last_message_day'] = "Recent Conversation"
-    elif last_turn_time > thirty_days_ago:
-        flags['Last_message_day'] = "Stale Conversation"
-    else:
-        flags['Last_message_day'] = "Old Conversation"
+    if not last_turn_time: flags['Last_message_day'] = "Unknown"
+    elif len(conversation_turns) < 5: flags['Last_message_day'] = "New Conversation"
+    elif last_turn_time > two_days_ago: flags['Last_message_day'] = "Active Conversation"
+    elif last_turn_time > seven_days_ago: flags['Last_message_day'] = "Recent Conversation"
+    elif last_turn_time > thirty_days_ago: flags['Last_message_day'] = "Stale Conversation"
+    else: flags['Last_message_day'] = "Old Conversation"
 
-    # Last topic category
     last_topic = identified_topics[0] if identified_topics else {}
     flags['last_topic_category'] = last_topic.get('category', 'N/A')
 
-    # Last message content analysis
-    last_message_content = last_turn.get('content', '').lower() if last_turn else ""
-    flags['contains_fallback_keywords'] = [name for name, pattern in FALLBACK_KEYWORDS.items() if re.search(pattern, last_message_content)]
-    flags['greeting_detected'] = any(re.search(p, last_message_content) for p in GREETING_KEYWORDS)
-    flags['flirtation_indicator'] = any(re.search(p, last_message_content) for p in FLIRT_KEYWORDS)
-    flags['time_reference_detected'] = any(re.search(p, last_message_content) for p in TIME_KEYWORDS)
-    flags['location_reference_detected'] = any(re.search(p, last_message_content) for p in LOCATION_KEYWORDS)
+    last_turn_embedding = last_turn.get('embedding') if last_turn else None
+    flags['contains_fallback_keywords'] = ["disengagement"] if _check_semantic_similarity(last_turn_embedding, "DISENGAGEMENT") else []
+    flags['greeting_detected'] = _check_semantic_similarity(last_turn_embedding, "GREETING")
+    flags['flirtation_indicator'] = _check_semantic_similarity(last_turn_embedding, "FLIRTATION")
+    flags['time_reference_detected'] = _check_semantic_similarity(last_turn_embedding, "TIME_REFERENCE")
+    flags['location_reference_detected'] = _check_semantic_similarity(last_turn_embedding, "LOCATION_REFERENCE")
 
-    # Recent engagement score
     recent_turns = conversation_turns[-5:]
-    question_count = sum(1 for t in recent_turns if '?' in t.get('content', ''))
-    avg_len = sum(len(t.get('content', '')) for t in recent_turns) / len(recent_turns) if recent_turns else 0
-    if question_count > 1 or avg_len > 80:
-        flags['recent_engagement_score'] = "high"
-    elif question_count > 0 or avg_len > 40:
-        flags['recent_engagement_score'] = "medium"
-    else:
-        flags['recent_engagement_score'] = "low"
+    question_count = sum(1 for t in recent_turns if _check_semantic_similarity(t.get('embedding'), "ASKING_A_QUESTION"))
+    if question_count > 1: flags['recent_engagement_score'] = "high"
+    elif question_count > 0: flags['recent_engagement_score'] = "medium"
+    else: flags['recent_engagement_score'] = "low"
 
     analysis['conversation_flags'] = flags
 

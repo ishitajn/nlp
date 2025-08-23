@@ -6,15 +6,13 @@ from collections import defaultdict
 from sklearn.metrics.pairwise import cosine_similarity
 
 from embedder import embedder_service
+from semantic_concepts import CONCEPT_EMBEDDINGS
 
 # --- Constants and Lexicons for Categorization ---
 
 AVOID_KEYWORDS = [r'\b(politics|religion|government|election|vote|biden|trump|conservative|liberal)\b']
 SENSITIVE_KEYWORDS = [r'\b(autism|adhd|ocd|bpd|trauma|disability|mental health|therapy|depression|anxiety|grief|loss)\b']
 FETISH_KEYWORDS = [r'\b(kink|fetish|bdsm|dom|sub|daddy|kitten|foot|feet|choke|spank)\b']
-
-# Pre-compute embedding for a 'flirtation' concept to measure sexual score
-FLIRT_EMBEDDING = embedder_service.encode_cached(["flirty, romantic, sexual, passion, desire, chemistry, attractive"])[0]
 
 # Category priority for conflict resolution (higher number = higher priority)
 CATEGORY_PRIORITY = {
@@ -82,8 +80,10 @@ def score_and_categorize_topics(
         # Semantic similarity score for 'sexual'
         if keywords_str:
             topic_embedding = embedder_service.encode_cached([keywords_str])[0]
-            sexual_similarity = cosine_similarity(topic_embedding.reshape(1, -1), FLIRT_EMBEDDING.reshape(1, -1))[0][0]
-            scores['sexual'] = sexual_similarity
+            flirt_embedding = CONCEPT_EMBEDDINGS.get("FLIRTATION")
+            if flirt_embedding is not None:
+                sexual_similarity = cosine_similarity(topic_embedding.reshape(1, -1), flirt_embedding.reshape(1, -1))[0][0]
+                scores['sexual'] = sexual_similarity
 
         # --- Final Assignment based on Priority ---
         # Find the highest-priority category that has a score above a certain threshold
