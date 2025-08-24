@@ -12,7 +12,7 @@ from semantic_concepts import CONCEPT_EMBEDDINGS
 
 AVOID_KEYWORDS = [r'\b(politics|religion|government|election|vote|biden|trump|conservative|liberal)\b']
 SENSITIVE_KEYWORDS = [r'\b(autism|adhd|ocd|bpd|trauma|disability|mental health|therapy|depression|anxiety|grief|loss)\b']
-FETISH_KEYWORDS = [r'\b(kink|fetish|bdsm|dom|sub|daddy|kitten|foot|feet|choke|spank)\b']
+FETISH_KEYWORDS = [r'\b(kink|fetish|bdsm|dom|sub|foot|feet|choke|spank)\b'] # Removed 'daddy', 'kitten'
 
 # Category priority for conflict resolution (higher number = higher priority)
 CATEGORY_PRIORITY = {
@@ -29,10 +29,10 @@ def _calculate_keyword_centrality(keywords: List[str], cluster_centroid: np.ndar
     if not keywords or cluster_centroid is None:
         return 0.0
     keyword_embeddings = embedder_service.encode_cached(keywords)
-    if not keyword_embeddings.any():
+    if keyword_embeddings is None or keyword_embeddings.size == 0:
         return 0.0
     similarities = cosine_similarity(keyword_embeddings, cluster_centroid.reshape(1, -1))
-    return float(np.mean(similarities)) if similarities.any() else 0.0
+    return float(np.mean(similarities)) if similarities.size > 0 else 0.0
 
 def score_and_categorize_topics(
     topic_clusters: List[Dict[str, Any]],
@@ -46,7 +46,9 @@ def score_and_categorize_topics(
         return dict(final_categorized_topics)
 
     max_cluster_size = max(len(c.get("messages", [])) for c in topic_clusters) or 1
-    keyword_embedding_cache = {}
+
+    # Cache for topic embeddings to avoid re-computation
+    topic_embedding_cache = {}
 
     for cluster in topic_clusters:
         topic_name = cluster.get("canonical_name", "Unknown Topic")
@@ -58,11 +60,11 @@ def score_and_categorize_topics(
         # Salience Score (used for focus)
         cluster_size_normalized = len(cluster.get("messages", [])) / max_cluster_size
         keyword_centrality = _calculate_keyword_centrality(cluster.get("keywords", []), cluster.get("centroid"))
-        recency_rank = context.get("topic_recency", {}).get(topic_name, 10)
-        recency_weight = 1 / recency_rank
-        scores['focus'] = (cluster_size_normalized + keyword_centrality + recency_weight)
+        recency_rank = context.get("topic_recency", {}).get(topic_name, 10) # Default to a low rank
+        recency_weight = 1 / (recency_rank + 1) # Avoid division by zero, smooth out effect
+        scores['focus'] = (cluster_size_normalized + keyword_centrality + recency_weight) / 3
 
-        # Keyword-based scores
+        # Keyword-based scores for clear-cut categories
         if any(re.search(p, keywords_str, re.IGNORECASE) for p in AVOID_KEYWORDS):
             scores['avoid'] = 1.0
         if any(re.search(p, keywords_str, re.IGNORECASE) for p in SENSITIVE_KEYWORDS):
@@ -70,28 +72,49 @@ def score_and_categorize_topics(
         if any(re.search(p, keywords_str, re.IGNORECASE) for p in FETISH_KEYWORDS):
             scores['fetish'] = 1.0
 
-        # Semantic similarity score for 'sexual'
+        # Semantic similarity score for 'sexual' using multiple concept embeddings
         if keywords_str:
-            if keywords_str not in keyword_embedding_cache:
-                keyword_embedding_cache[keywords_str] = embedder_service.encode_cached([keywords_str])[0]
-            topic_embedding = keyword_embedding_cache[keywords_str]
+            if keywords_str not in topic_embedding_cache:
+                # Use the cluster's centroid for a more stable representation than concatenated keywords
+                topic_embedding_cache[keywords_str] = cluster.get("centroid")
 
-            flirt_embedding = CONCEPT_EMBEDDINGS.get("FLIRTATION")
-            if flirt_embedding is not None and topic_embedding is not None:
-                sexual_similarity = cosine_similarity(topic_embedding.reshape(1, -1), flirt_embedding.reshape(1, -1))[0][0]
-                scores['sexual'] = sexual_similarity
+            topic_embedding = topic_embedding_cache[keywords_str]
 
-        # --- Final Assignment based on Priority ---
-        # Find the highest-priority category that has a score above a certain threshold
+            if topic_embedding is not None:
+                sexual_concept_embeddings = [
+                    CONCEPT_EMBEDDINGS.get("FLIRTATION"),
+                    CONCEPT_EMBEDDINGS.get("ROMANTIC"),
+                    CONCEPT_EMBEDDINGS.get("SEXUAL_ADVANCE")
+                ]
+
+                max_similarity = 0.0
+                for concept_embedding in sexual_concept_embeddings:
+                    if concept_embedding is not None:
+                        similarity = cosine_similarity(topic_embedding.reshape(1, -1), concept_embedding.reshape(1, -1))[0][0]
+                        if similarity > max_similarity:
+                            max_similarity = similarity
+
+                scores['sexual'] = float(max_similarity)
+
+        # --- Final Assignment based on Priority and Thresholds ---
         assigned = False
+        # Sort categories by priority to handle overlaps correctly
         for category, _ in sorted(CATEGORY_PRIORITY.items(), key=lambda item: item[1], reverse=True):
-            # Using a simple threshold for now. This can be tuned.
-            if scores.get(category, 0) > 0.4:
+            score = scores.get(category, 0)
+
+            # Define thresholds for each category to allow for more nuanced control
+            threshold = 0.5 if category == 'sexual' else 0.6 # Stricter threshold for keyword matches
+
+            if score >= threshold:
                 final_categorized_topics[category].append(topic_name)
                 assigned = True
                 break # Assign to the highest priority category only
 
         if not assigned:
-            final_categorized_topics["neutral"].append(topic_name)
+            # Only assign to focus if it has a reasonably high score, otherwise neutral
+            if scores.get('focus', 0) > 0.4:
+                 final_categorized_topics["focus"].append(topic_name)
+            else:
+                 final_categorized_topics["neutral"].append(topic_name)
 
     return dict(final_categorized_topics)

@@ -9,7 +9,12 @@ from embedder import embedder_service
 CONCEPT_DEFINITIONS = {
     "GREETING": "saying hi, hello, how are you, hey there, good morning, good afternoon, good evening, what's up",
     "ASKING_A_QUESTION": "asking a question, being curious, inquisitive, what, how, when, where, why, do you, are you, can you, will you",
-    "FLIRTATION": "flirting, being romantic, expressing sexual desire, passion, attraction, chemistry, saying someone is cute, hot, or beautiful",
+
+    # --- Semantic concepts for sexual/romantic conversation ---
+    "FLIRTATION": "playful banter, light flirting, testing the waters, being cheeky, dropping hints",
+    "ROMANTIC": "expressing romantic interest, deep connection, intimacy, talking about love, relationships, and feelings",
+    "SEXUAL_ADVANCE": "sexual escalation, being direct about desire, making a pass, talking about sex, making sexual advances",
+
     "TIME_REFERENCE": "talking about time, dates, scheduling, today, tomorrow, this weekend, next week, morning, evening, hours, minutes",
     "LOCATION_REFERENCE": "talking about places, locations, meeting up, distance, city, country, here, there, neighborhood, area",
     "DISENGAGEMENT": "being unsure, ambiguous, non-committal, I don't know, maybe, we'll see, lol, haha, okay",

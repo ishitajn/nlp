@@ -14,11 +14,13 @@ def _get_canonical_name(keywords: List[str], centroid: np.ndarray) -> str:
     """Chooses the most central keyword as the canonical name for a topic."""
     if not keywords:
         return "Unknown Topic"
+    # If there's no centroid, fall back to the first keyword
     if centroid is None:
         return keywords[0]
 
     keyword_embeddings = embedder_service.encode_cached(keywords)
-    if not keyword_embeddings.any():
+    # Handle cases where embedding fails or returns an empty array
+    if keyword_embeddings is None or keyword_embeddings.size == 0:
         return keywords[0]
 
     similarities = cosine_similarity(keyword_embeddings, centroid.reshape(1, -1))
@@ -29,8 +31,8 @@ def _deduplicate_and_merge_topics(
     topics: List[Dict[str, Any]],
     embeddings: np.ndarray,
     cluster_labels: np.ndarray,
-    string_threshold=85,
-    embedding_threshold=0.9
+    string_threshold=90,
+    embedding_threshold=0.95
 ) -> List[Dict[str, Any]]:
     """
     Deduplicates topics based on keyword and semantic similarity.

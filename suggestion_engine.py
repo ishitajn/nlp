@@ -1,297 +1,226 @@
-# In app/svc/suggestion_engine.py
-
-import os
-import json
+# In suggestion_engine.py
 import random
-import numpy as np
-from typing import Dict, Any, List, Optional
-from collections import defaultdict, Counter
-from sklearn.metrics.pairwise import cosine_similarity
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from typing import Dict, Any, List, Optional, Set
 
-from embedder import embedder_service
 from model import Feedback
 
-# Constants
-GRAPH_DATA_PATH = "data/transition_graph.json"
-METADATA_PATH = "data/topic_metadata.json"
-
 # ==============================================================================
-# == THE DEFINITIVE, UNCENSORED & EXPANDED SUGGESTION BANK                    ==
+# == REFINED & CONTEXT-AWARE SUGGESTION TEMPLATES                             ==
 # ==============================================================================
+# These templates are designed to be more open-ended and adaptable.
+# They are now structured by the INTENT of the suggestion.
 SUGGESTION_TEMPLATES = {
+    # Suggestions for new topics to introduce
     "topics": {
-        "contextual": ["Playful fantasy about {topic}", "Deeper dive into {topic}", "Adventurous take on {topic}", "A secret desire related to {topic}", "Connect {topic} to a personal story"],
-        "escalation": ["Ideal late-night vibes", "Sharing a secret desire", "Discussing 'our' chemistry", "A fantasy scenario you've imagined", "What turns you on most"],
-        "rapport": ["Favorite travel memories", "A skill they want to learn", "Their passion projects", "Childhood dreams or ambitions", "What makes them feel alive"],
-        "fallback": ["Most adventurous thing they've done", "Their ideal perfect day", "A hidden talent they have", "Favorite type of humor", "A guilty pleasure"],
+        "curiosity": [
+            "I'm curious, what's your take on {topic}?",
+            "Changing gears a bit, but I've been thinking about {topic} lately.",
+            "Tell me about your experience with {topic}.",
+        ],
+        "playful": [
+            "Random thought: are you a fan of {topic}?",
+            "Let's talk about something fun, like {topic}.",
+            "I have a feeling you might have some interesting stories about {topic}.",
+        ],
+        "deep": [
+            "I'd love to hear your thoughts on {topic}.",
+            "On a deeper note, how do you feel about {topic}?",
+            "I feel like we could have a good conversation about {topic}.",
+        ],
     },
+    # Questions to ask about an existing topic
     "questions": {
-        "contextual": ["Favorite memory of {topic}?", "How does {topic} make you feel?", "A secret about your love for {topic}?", "Wildest experience with {topic}?", "Connect {topic} to a fantasy?"],
-        "escalation": ["What makes you feel most desired?", "A fantasy you've never shared?", "What's our first adventure?", "Ideal cozy night together?", "Biggest turn-on?"],
-        "rapport": ["What drives your passion for {topic}?", "A memory tied to {topic}?", "How did you get into {topic}?", "What does {topic} mean to you?", "Proudest moment related to {topic}?"],
-        "fallback": ["Something you're curious about?", "What always makes you laugh?", "Biggest goal for this year?", "A story you love to tell?", "What's your love language?"],
+        "open_ended": [
+            "What's your favorite memory related to {topic}?",
+            "How does {topic} make you feel?",
+            "What's something about {topic} that most people don't know?",
+        ],
+        "personal": [
+            "What's your personal connection to {topic}?",
+            "Has {topic} played a big role in your life?",
+            "Tell me a secret about your love for {topic}.",
+        ],
+        "flirty": [
+            "What's the most adventurous thing you've done involving {topic}?",
+            "If we were to explore {topic} together, what would we do?",
+            "Does {topic} ever get you in a flirty mood?",
+        ],
     },
+    # Ways to build intimacy and connection
     "intimacy": {
-        "contextual": ["Compliment their view on {topic}", "Relate {topic} to a personal feeling", "Appreciate their passion for {topic}", "Share a vulnerability about {topic}", "Connect {topic} to a shared future"],
-        "validation": ["Acknowledge their irresistible energy", "Compliment their personality deeply", "Appreciate their openness and trust", "Validate their feelings or perspective", "Express how they make you feel"],
-        "connection": ["Share a small, personal secret", "Mention a specific future experience", "Reference an inside joke we have", "Express genuine appreciation for them", "Ask about their emotional needs"],
-        "fallback": ["Compliment their way of thinking", "Mention their great energy", "Acknowledge their unique humor", "Express enjoyment of the conversation", "Ask what makes them feel connected"],
+        "validation": [
+            "I really like how you think about {topic}.",
+            "It's cool that you're so passionate about {topic}.",
+            "Thanks for sharing that with me, I feel like I understand you better now.",
+        ],
+        "shared_experience": [
+            "I feel the exact same way about {topic}!",
+            "That's so funny, I had a similar experience with {topic}.",
+            "We should totally do {topic} together sometime.",
+        ],
+        "vulnerability": [
+            "To be honest, I've always been a little nervous about {topic}.",
+            "I'm opening up here, but I've always wanted to try {topic}.",
+            "You make me feel comfortable talking about things like {topic}.",
+        ],
     },
+    # Suggestions with a sexual or romantic undertone
     "sexual": {
-        "high_tension": ["Imagining feeling your body during {topic}", "Your energy is making me ache for you", "Describe a sensual act involving {topic}", "Can't stop thinking about you naked", "Tell me a dirty secret"],
-        "medium_tension": ["Playfully tease about their charm", "Suggestive compliment on their vibe", "Hint at our 'dangerous' chemistry", "Curiosity about their morning energy", "What if we were together right now..."],
-        "low_tension": ["A playful, flirty compliment", "Mentioning the obvious spark", "A cheeky 'what if' scenario", "A suggestive emoji 😉", "You have a captivating smile"],
-        "fallback": ["Compliment their confidence", "Acknowledge their attractive energy", "A simple, playful wink emoji", "Mentioning a 'spark'", "You seem like fun"],
+        "playful_tease": [
+            "I have a feeling that talking about {topic} with you could be dangerous... in a good way.",
+            "Is it just me, or is there some tension in this conversation about {topic}?",
+            "You have a really captivating energy when you talk about {topic}.",
+        ],
+        "direct_desire": [
+            "Talking about {topic} is making me think about you in a different way.",
+            "I can't help but imagine what it would be like to explore {topic} with you.",
+            "Let's just say my imagination is running wild thinking about you and {topic}.",
+        ],
+        "romantic_connection": [
+            "I feel a real spark talking with you about {topic}.",
+            "Our chemistry is undeniable, especially when we discuss things like {topic}.",
+            "I feel like we could have a really special connection, and it starts with conversations like this.",
+        ],
+    },
+}
+
+# General fallback suggestions for when context is weak
+FALLBACK_SUGGESTIONS = {
+    "topics": [
+        "What's the most spontaneous thing you've ever done?",
+        "What's a skill you'd love to learn?",
+        "Tell me about a travel destination that's on your bucket list.",
+    ],
+    "questions": [
+        "What's something that always makes you smile?",
+        "What's your go-to way to de-stress after a long week?",
+        "What's a movie you can watch over and over again?",
+    ],
+    "intimacy": [
+        "I'm really enjoying this conversation.",
+        "You have a great sense of humor.",
+        "I feel like I could talk to you for hours.",
+    ],
+    "sexual": [
+        "You have a really attractive energy.",
+        "I'm definitely intrigued by you.",
+        "There's a definite spark between us.",
+    ],
+}
+
+
+def _get_recent_and_salient_topics(
+    identified_topics: List[Dict[str, Any]],
+    analysis_data: Dict[str, Any],
+    count: int = 3
+) -> List[Dict[str, Any]]:
+    """Gets the most recent and talked-about topics."""
+    topic_map = {t["canonical_name"]: t for t in identified_topics}
+
+    recency = analysis_data.get("contextual_features", {}).get("topic_recency", {})
+    saliency = analysis_data.get("contextual_features", {}).get("topic_saliency", {})
+
+    # Combine scores, giving more weight to recency
+    combined_scores = {
+        name: (1 / recency.get(name, 10)) + (saliency.get(name, 0) * 0.1)
+        for name in topic_map.keys()
     }
-}
 
-# ==============================================================================
-# == THE DEFINITIVE SUGGESTION STRATEGY MAP                                   ==
-# ==============================================================================
-# This map uses the categories from scoring_engine.py
-SUGGESTION_STRATEGY_MAP = {
-    "sensitive": {"topics": ["rapport"], "questions": ["rapport"], "intimacy": ["validation", "connection"]},
-    "fetish": {"sexual": ["medium_tension", "high_tension"]},
-    "sexual": {"topics": ["escalation"], "questions": ["escalation"], "sexual": ["low_tension", "medium_tension"]},
-    "focus": {"topics": ["contextual", "rapport"], "questions": ["contextual", "rapport"], "intimacy": ["contextual"]},
-    "avoid": {"topics": ["fallback"], "questions": ["fallback"]}, # Suggest changing the topic
-    "neutral": {"topics": ["rapport", "fallback"], "questions": ["rapport", "fallback"], "intimacy": ["fallback"]},
-    "Uncategorized": {"topics": ["fallback"], "questions": ["fallback"], "intimacy": ["fallback"], "sexual": ["fallback"]},
-}
+    sorted_topics = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
 
-# Simplified phase model
-CONVERSATION_PHASE_MAP = {
-    "Icebreaker": {"next_themes": ["Hobbies & Interests", "Flirting"]},
-    "Rapport Building": {"next_themes": ["Hobbies & Interests", "Flirting", "Deeper Connection"]},
-    "Escalation": {"next_themes": ["Deeper Connection", "Logistics", "Flirting"]},
-    "Explicit Banter": {"next_themes": ["Deeper Connection", "Flirting"]},
-    "Logistics": {"next_themes": ["Flirting"]},
-}
+    top_topic_names = [name for name, score in sorted_topics[:count]]
+
+    return [topic_map[name] for name in top_topic_names if name in topic_map]
 
 
-class AdvancedSuggestionEngine:
-    def __init__(self, analysis_data: Dict[str, Any], conversation_turns: List[Dict[str, Any]], identified_topics: List[Dict[str, Any]], feedback: Optional[List[Feedback]] = None):
-        self.analysis = analysis_data
-        self.turns = conversation_turns
-        self.topics = identified_topics
-        self.feedback = feedback or []
-        self.graph_path = GRAPH_DATA_PATH
-        self.metadata_path = METADATA_PATH
-        self.sentiment_analyzer = SentimentIntensityAnalyzer()
+def _generate_suggestions_for_category(
+    category: str,
+    topics: List[Dict[str, Any]],
+    used_suggestions: Set[str],
+    max_suggestions: int = 5
+) -> List[str]:
+    """Generates a list of suggestions for a specific category (topics, questions, etc.)."""
+    suggestions = []
 
-        # Learning Pipeline
-        self.transition_graph, self.topic_metadata = self._load_persistent_data()
-        session_graph = self._build_transition_graph_from_session()
-        self._merge_graphs(self.transition_graph, session_graph)
-        self._apply_feedback()
-        self._update_and_save_persistent_data()
+    for topic in topics:
+        if len(suggestions) >= max_suggestions:
+            break
 
-    def _load_persistent_data(self) -> (Dict, Dict):
-        graph = defaultdict(lambda: defaultdict(float))
-        if os.path.exists(self.graph_path):
-            with open(self.graph_path, 'r') as f:
-                loaded_graph = json.load(f)
-                for from_topic, to_topics in loaded_graph.items():
-                    graph[from_topic] = defaultdict(float, to_topics)
+        topic_name = topic.get("canonical_name", "this")
+        topic_category = topic.get("category", "neutral")
 
-        metadata = {}
-        if os.path.exists(self.metadata_path):
-            with open(self.metadata_path, 'r') as f:
-                metadata = json.load(f)
+        # Determine the intent/strategy based on the topic's category
+        strategy = "playful" # default
+        if category == "questions":
+            strategy = "open_ended"
+            if topic_category == "sexual":
+                strategy = "flirty"
+            elif topic_category in ["sensitive", "focus"]:
+                strategy = "personal"
+        elif category == "intimacy":
+            strategy = "validation"
+            if topic_category == "sexual":
+                strategy = "shared_experience"
+        elif category == "sexual":
+            strategy = "playful_tease"
+            if topic_category == "sexual":
+                strategy = "direct_desire"
 
-        return graph, metadata
+        # Get a template and format it
+        template = random.choice(SUGGESTION_TEMPLATES[category].get(strategy, []))
+        if template:
+            suggestion = template.format(topic=topic_name)
+            if suggestion not in used_suggestions:
+                suggestions.append(suggestion)
+                used_suggestions.add(suggestion)
 
-    def _update_and_save_persistent_data(self):
-        # Update metadata with topics from the current session
-        for topic in self.topics:
-            self.topic_metadata[topic["canonical_name"]] = topic["category"]
-
-        # Save both files
-        os.makedirs(os.path.dirname(self.graph_path), exist_ok=True)
-        with open(self.graph_path, 'w') as f:
-            json.dump(self.transition_graph, f, indent=4)
-        with open(self.metadata_path, 'w') as f:
-            json.dump(self.topic_metadata, f, indent=4)
-
-    def _merge_graphs(self, main_graph: Dict, session_graph: Dict):
-        for from_topic, to_topics in session_graph.items():
-            for to_topic, score in to_topics.items():
-                main_graph[from_topic][to_topic] += score
-
-    def _apply_feedback(self):
-        for fb in self.feedback:
-            if fb.action == "chosen":
-                from_topic = fb.current_topic
-                to_topic = fb.chosen_suggestion
-                self.transition_graph[from_topic][to_topic] *= 1.2
-                self.transition_graph[from_topic][to_topic] += 0.5
-
-    def _get_topic_sequence(self) -> List[Optional[str]]:
-        """Reconstructs the topic sequence from the identified topics."""
-        turn_to_topic_map = {}
-        for topic in self.topics:
-            for turn in topic["message_turns"]:
-                # Using turn 'id' or a unique identifier if available, otherwise content
-                turn_key = turn.get('id', turn['content'])
-                turn_to_topic_map[turn_key] = topic["canonical_name"]
-
-        sequence = []
-        for turn in self.turns:
-            turn_key = turn.get('id', turn['content'])
-            sequence.append(turn_to_topic_map.get(turn_key))
-        return sequence
-
-    def _build_transition_graph_from_session(self) -> Dict[str, Dict[str, float]]:
-        topic_sequence = self._get_topic_sequence()
-        graph = defaultdict(lambda: defaultdict(float))
-        num_turns = len(self.turns)
-        for i in range(num_turns - 1):
-            from_topic, to_topic = topic_sequence[i], topic_sequence[i+1]
-            if not from_topic or not to_topic or from_topic == to_topic:
-                continue
+    # Fill with fallbacks if needed
+    while len(suggestions) < max_suggestions:
+        fallback = random.choice(FALLBACK_SUGGESTIONS[category])
+        if fallback not in used_suggestions:
+            suggestions.append(fallback)
+            used_suggestions.add(fallback)
             
-            # --- Enhanced Weighting ---
-            from_turn = self.turns[i]
-            to_turn = self.turns[i+1]
+    return suggestions
 
-            # 1. Recency Weight
-            recency_weight = 0.95 ** (num_turns - 1 - i)
-
-            # 2. Sentiment Weight & Alignment
-            from_sentiment = self.sentiment_analyzer.polarity_scores(from_turn['content'])['compound']
-            to_sentiment = self.sentiment_analyzer.polarity_scores(to_turn['content'])['compound']
-
-            sentiment_weight = 1.0 + from_sentiment
-
-            # Reward transitions that maintain a consistent emotional tone
-            sentiment_alignment = 1.2 if (from_sentiment > 0 and to_sentiment > 0) or \
-                                        (from_sentiment < 0 and to_sentiment < 0) else 0.8
-
-            # (Phase alignment would be added here if per-turn phase data was available)
-
-            adjusted_score = 1.0 * recency_weight * sentiment_weight * sentiment_alignment
-            graph[from_topic][to_topic] += adjusted_score
-
-        return graph
-
-    def get_suggestions(self) -> Dict[str, List[str]]:
-        topic_sequence = self._get_topic_sequence()
-        current_topic_name = next((t for t in reversed(topic_sequence) if t is not None), None)
-
-        candidate_info = defaultdict(lambda: {'score': 0.0, 'reasons': set()})
-
-        # 1. Add candidates from the transition graph
-        if current_topic_name and current_topic_name in self.transition_graph:
-            for next_topic, score in self.transition_graph[current_topic_name].items():
-                candidate_info[next_topic]['score'] += score
-                candidate_info[next_topic]['reasons'].add("Natural transition")
-
-        # 2. Add other topics present in the conversation as candidates
-        all_topic_names = {t["canonical_name"] for t in self.topics}
-        for topic_name in all_topic_names:
-            if topic_name not in candidate_info:
-                candidate_info[topic_name]['score'] += 0.1 # Small boost for being mentioned
-                candidate_info[topic_name]['reasons'].add("Mentioned in conversation")
-
-        # 3. Apply scoring based on context
-        recency_map = self.analysis.get("topic_recency", {})
-        saliency_map = self.analysis.get("topic_saliency", {})
-
-        for topic_name, info in candidate_info.items():
-            # Penalize recent topics
-            if topic_name in recency_map:
-                penalty = 0.5 * (1 / recency_map[topic_name])
-                info['score'] *= penalty
-            # Boost salient topics
-            if topic_name in saliency_map:
-                info['score'] += saliency_map[topic_name] * 0.2
-
-        # 4. Filter out the current topic and very similar topics
-        if current_topic_name:
-            if current_topic_name in candidate_info:
-                del candidate_info[current_topic_name]
-
-            # Semantic filtering
-            candidate_names = list(candidate_info.keys())
-            if candidate_names:
-                current_topic_embedding = embedder_service.encode_cached([current_topic_name])
-                candidate_embeddings = embedder_service.encode_cached(candidate_names)
-                similarities = cosine_similarity(current_topic_embedding, candidate_embeddings)[0]
-
-                for i, topic_name in enumerate(candidate_names):
-                    if similarities[i] > 0.85:
-                        candidate_info[topic_name]['score'] *= 0.1 # Penalize
-                        candidate_info[topic_name]['reasons'].add("Similar to current topic")
-
-        # 5. Sort and select top N
-        sorted_candidates = sorted(candidate_info.items(), key=lambda item: item[1]['score'], reverse=True)
-        top_5_suggestions = [{"topic": t, "score": i['score'], "reason": " ".join(list(i['reasons']))} for t, i in sorted_candidates[:5]]
-
-        return self._format_suggestions_for_output(top_5_suggestions)
-
-    def _format_suggestions_for_output(self, suggestions_with_reasons: List[Dict]) -> Dict[str, List[str]]:
-        suggested_topics = [s['topic'] for s in suggestions_with_reasons]
-        suggestions = { "topics": [], "questions": [], "intimacy": [], "sexual": [] }
-
-        # Create a lookup for topic details
-        topic_details_map = {t["canonical_name"]: t for t in self.topics}
-
-        for category in suggestions.keys():
-            category_suggestions = set()
-            for canonical_topic_name in suggested_topics:
-                if len(category_suggestions) >= 5: break
-
-                topic_details = topic_details_map.get(canonical_topic_name)
-
-                # If topic is not from current convo, get its category from the metadata cache
-                if not topic_details:
-                    topic_category = self.topic_metadata.get(canonical_topic_name, "Uncategorized")
-                    # We don't have keywords for these old topics, so we'll use the name itself
-                    topic_details = {"category": topic_category, "keywords": [canonical_topic_name]}
-                else:
-                    topic_category = topic_details.get("category", "Uncategorized")
-
-                # Look up strategy from the map, default to fallback
-                strategies = SUGGESTION_STRATEGY_MAP.get(topic_category, {}).get(category, ["fallback"])
-                if not strategies:
-                    strategies = ["fallback"]
-
-                keyword_to_use = random.choice(topic_details.get("keywords", [canonical_topic_name]))
-                strategy = random.choice(strategies)
-                template = random.choice(SUGGESTION_TEMPLATES[category][strategy])
-                suggestion = template.format(topic=keyword_to_use)
-
-                if suggestion not in category_suggestions:
-                    category_suggestions.add(suggestion)
-
-            suggestions[category] = list(category_suggestions)
-
-        # Fill with fallbacks if not enough suggestions were generated
-        final_suggestions = {}
-        for category, items in suggestions.items():
-            # Ensure at least 5 suggestions, filling with fallbacks if necessary
-            if len(items) < 5:
-                needed = 5 - len(items)
-                fallback_templates = SUGGESTION_TEMPLATES[category]["fallback"]
-                for _ in range(needed):
-                    suggestion = random.choice(fallback_templates).format(topic="your vibe")
-                    if suggestion not in items:
-                        items.append(suggestion)
-
-            # Return a list of strings, not a JSON dump of a list
-            final_suggestions[category] = items[:5]
-
-        return final_suggestions
 
 def generate_suggestions(
     analysis_data: Dict[str, Any],
     conversation_turns: List[Dict[str, Any]],
     identified_topics: List[Dict[str, Any]],
-    feedback: Optional[List[Feedback]] = None
+    feedback: Optional[List[Feedback]] = None # Feedback is kept for future model-based versions
 ) -> Dict[str, List[str]]:
     """
-    Generates 5 creative, context-aware suggestions for each category.
+    Generates creative, context-aware suggestions based on a stateless, rule-based engine.
     """
-    engine = AdvancedSuggestionEngine(analysis_data, conversation_turns, identified_topics, feedback)
-    return engine.get_suggestions()
+    # Get the top topics to focus on for suggestions
+    contextual_topics = _get_recent_and_salient_topics(identified_topics, analysis_data)
+
+    # Get all topic names for generating new topic ideas
+    all_topic_names = [t["canonical_name"] for t in identified_topics]
+
+    # If no topics were identified, use generic placeholders
+    if not contextual_topics:
+        contextual_topics = [{"canonical_name": "this conversation", "category": "neutral"}]
+    if not all_topic_names:
+        all_topic_names = ["travel", "movies", "passions", "dreams", "adventures"]
+
+    # Generate suggestions for each category
+    used_suggestions: Set[str] = set()
+    final_suggestions = {}
+
+    # For 'topics', suggest topics that are NOT the current ones
+    other_topics = [
+        {"canonical_name": name, "category": "neutral"}
+        for name in all_topic_names
+        if name not in {t["canonical_name"] for t in contextual_topics}
+    ]
+    if not other_topics: # If all topics are contextual, use fallbacks
+        other_topics = [{"canonical_name": name, "category": "neutral"} for name in ["a new adventure", "a shared secret"]]
+
+    final_suggestions["topics"] = _generate_suggestions_for_category("topics", other_topics, used_suggestions)
+    final_suggestions["questions"] = _generate_suggestions_for_category("questions", contextual_topics, used_suggestions)
+    final_suggestions["intimacy"] = _generate_suggestions_for_category("intimacy", contextual_topics, used_suggestions)
+    final_suggestions["sexual"] = _generate_suggestions_for_category("sexual", contextual_topics, used_suggestions)
+
+    return final_suggestions

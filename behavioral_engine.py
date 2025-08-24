@@ -47,16 +47,29 @@ def _parse_timestamp(ts_str: Optional[str]) -> Optional[datetime]:
 
 def _check_semantic_similarity(text: str, text_embedding: np.ndarray, concept_name: str) -> bool:
     """Checks if a text embedding is similar to a pre-computed concept embedding."""
-    # Quick check for question mark
-    if concept_name == "ASKING_A_QUESTION" and text.strip().endswith('?'):
-        return True
+    if concept_name == "ASKING_A_QUESTION":
+        # Rule-based checks for questions are more reliable than semantics alone
+        # 1. Check for question mark
+        if text.strip().endswith('?'):
+            return True
+        # 2. Check for question-starting words (case-insensitive)
+        question_starters = r'^(who|what|where|when|why|how|is|are|do|does|did|will|can|could|should|would|have|has|had|am|was|were|don\'t|isn\'t|aren\'t)\b'
+        if re.match(question_starters, text.strip(), re.IGNORECASE):
+            return True
 
+    # Fallback to semantic check if rule-based checks fail or for other concepts
     concept_embedding = CONCEPT_EMBEDDINGS.get(concept_name)
     if concept_embedding is None or text_embedding is None or not hasattr(text_embedding, 'reshape'):
         return False
 
     similarity = cosine_similarity(text_embedding.reshape(1, -1), concept_embedding.reshape(1, -1))[0][0]
-    return bool(similarity > SIMILARITY_THRESHOLDS.get(concept_name, 0.6))
+    threshold = SIMILARITY_THRESHOLDS.get(concept_name, 0.6)
+
+    # For questions, if we reached here, it's ambiguous, so use a lower threshold
+    if concept_name == "ASKING_A_QUESTION":
+        threshold = 0.55
+
+    return bool(similarity > threshold)
 
 def analyze_conversation_behavior(
     conversation_turns: List[Dict[str, Any]],
