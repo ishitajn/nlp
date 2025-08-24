@@ -5,7 +5,7 @@ from collections import Counter
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 ANALYSIS_SCHEMA = {
-    "phases": { "Icebreaker": [r'\b(h(i|ey|ello)|how are you|your profile|we matched)\b'], "Rapport Building": [r'\b(tell me more|what about you|hobbies|passions|family|career)\b'], "Escalation": [r'\b(tension|desire|imagining|in person|what if|chemistry)\b'], "Explicit Banter": [r'\b(fuck|sex|nude|kink|sexting|horny|aroused)\b'], "Logistics": [r'\b(when are you free|let\'s meet|what\'s your number|schedule|date)\b'], },
+    "phases": { "Icebreaker": [r'\b(h(i|ey|ello)|how are you|your profile|we matched)\b'], "Rapport Building": [r'\b(tell me more|what about you|hobbies|passions|family|career|work|job|hiking|trip|travel)\b'], "Escalation": [r'\b(tension|desire|imagining|in person|what if|chemistry)\b'], "Explicit Banter": [r'\b(fuck|sex|nude|kink|sexting|horny|aroused)\b'], "Logistics": [r'\b(when are you free|let\'s meet|what\'s your number|schedule|date)\b'], },
     "tones": { "Playful": [r'\b(haha|lol|lmao|kidding|teasing|banter|playful|cheeky)\b', r'[😉😜😏]'], "Serious": [r'\b(to be honest|actually|my values|looking for|seriously)\b'], "Romantic": [r'\b(connection|special|beautiful|chemistry|heart|adore|lovely)\b'], "Complimentary": [r'\b(great|amazing|impressive|gorgeous|handsome|hot|sexy|cute)\b'], "Vulnerable": [r'\b(my feelings|i feel|struggle|opening up is hard|i feel safe with you)\b'], },
     "intents": { "Gathering Information": [r'\?'], "Building Comfort": [r'\b(that makes sense|i understand|thank you for sharing)\b'], "Testing Boundaries": [r'\b(what are you into|how adventurous|are you open to)\b'], "Making Plans": [r'\b(we should|let\'s|are you free|wanna grab)\b'], "Expressing Desire": [r'\b(i want you|i need you|can\'t stop thinking about you|i desire you)\b'], }
 }
@@ -51,7 +51,9 @@ def extract_contextual_features(
     analysis["sentiment_analysis"] = { "overall": sentiment, "compound_score": compound_score }
 
     # --- 4. Topic-based Features (Recency and Salience) ---
-    topic_saliency = Counter(topic['canonical_name'] for topic in identified_topics)
+    topic_saliency = Counter()
+    for topic in identified_topics:
+        topic_saliency[topic['canonical_name']] += len(topic.get("message_turns", []))
 
     topic_recency = {}
     turn_count = len(conversation_turns)
@@ -70,7 +72,17 @@ def extract_contextual_features(
     sorted_recent_topics = sorted(topic_recency.items(), key=lambda item: item[1])
 
     analysis["topic_saliency"] = dict(topic_saliency.most_common(10))
-    analysis["topic_recency"] = {topic: rank + 1 for rank, (topic, score) in enumerate(sorted_recent_topics)}
+
+    # Assign ranks, handling ties correctly (e.g., 1, 1, 3, 4)
+    ranked_recency = {}
+    last_score = -1
+    last_rank = 0
+    for i, (topic, score) in enumerate(sorted_recent_topics):
+        if score > last_score:
+            last_rank = i + 1
+        ranked_recency[topic] = last_rank
+        last_score = score
+    analysis["topic_recency"] = ranked_recency
 
 
     # --- 5. Speaker Roles and Turn Position ---
