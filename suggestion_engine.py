@@ -82,6 +82,19 @@ SUGGESTION_TEMPLATES = {
             "I feel like we could have a really special connection, and it starts with conversations like this.",
         ],
     },
+    # Suggestions for romantic topics
+    "romantic": {
+        "appreciation": [
+            "I feel a real connection with you, especially when we talk about {topic}.",
+            "I really appreciate you opening up to me about {topic}.",
+            "This conversation about {topic} is making me feel closer to you."
+        ],
+        "shared_future": [
+            "I'd love to explore {topic} with you sometime.",
+            "This conversation makes me excited for what's to come with us.",
+            "I hope we can talk more about {topic} in person soon."
+        ]
+    }
 }
 
 # General fallback suggestions for when context is weak
@@ -105,6 +118,11 @@ FALLBACK_SUGGESTIONS = {
         "You have a really attractive energy.",
         "I'm definitely intrigued by you.",
         "There's a definite spark between us.",
+    ],
+    "romantic": [
+        "I'm starting to feel a real connection between us.",
+        "I'm really drawn to your personality.",
+        "I feel like we have something special."
     ],
 }
 
@@ -155,19 +173,27 @@ def _generate_suggestions_for_category(
             strategy = "open_ended"
             if topic_category == "sexual":
                 strategy = "flirty"
-            elif topic_category in ["sensitive", "focus"]:
+            elif topic_category in ["sensitive", "focus", "romantic"]:
                 strategy = "personal"
         elif category == "intimacy":
             strategy = "validation"
             if topic_category == "sexual":
                 strategy = "shared_experience"
+            elif topic_category == "romantic":
+                strategy = "vulnerability"
         elif category == "sexual":
             strategy = "playful_tease"
             if topic_category == "sexual":
                 strategy = "direct_desire"
+        elif category == "romantic":
+            strategy = "appreciation"
 
         # Get a template and format it
-        template = random.choice(SUGGESTION_TEMPLATES[category].get(strategy, []))
+        templates = SUGGESTION_TEMPLATES[category].get(strategy, [])
+        if not templates: # Fallback to a default strategy for the category if specific one is empty
+            templates = SUGGESTION_TEMPLATES[category].get("playful", []) or SUGGESTION_TEMPLATES[category].get("curiosity", [])
+
+        template = random.choice(templates)
         if template:
             suggestion = template.format(topic=topic_name)
             if suggestion not in used_suggestions:
@@ -221,6 +247,7 @@ def generate_suggestions(
     final_suggestions["topics"] = _generate_suggestions_for_category("topics", other_topics, used_suggestions)
     final_suggestions["questions"] = _generate_suggestions_for_category("questions", contextual_topics, used_suggestions)
     final_suggestions["intimacy"] = _generate_suggestions_for_category("intimacy", contextual_topics, used_suggestions)
+    final_suggestions["romantic"] = _generate_suggestions_for_category("romantic", contextual_topics, used_suggestions)
     final_suggestions["sexual"] = _generate_suggestions_for_category("sexual", contextual_topics, used_suggestions)
 
     return final_suggestions

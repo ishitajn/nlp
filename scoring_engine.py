@@ -18,7 +18,8 @@ FETISH_KEYWORDS = [r'\b(kink|fetish|bdsm|dom|sub|foot|feet|choke|spank)\b'] # Re
 CATEGORY_PRIORITY = {
     "sensitive": 5,
     "fetish": 4,
-    "sexual": 3,
+    "sexual": 4, # Highest non-sensitive priority
+    "romantic": 3,
     "focus": 2,
     "avoid": 1,
     "neutral": 0
@@ -72,46 +73,47 @@ def score_and_categorize_topics(
         if any(re.search(p, keywords_str, re.IGNORECASE) for p in FETISH_KEYWORDS):
             scores['fetish'] = 1.0
 
-        # Semantic similarity score for 'sexual' using multiple concept embeddings
+        # Semantic similarity scores for 'romantic' and 'sexual'
         if keywords_str:
             if keywords_str not in topic_embedding_cache:
-                # Use the cluster's centroid for a more stable representation than concatenated keywords
                 topic_embedding_cache[keywords_str] = cluster.get("centroid")
 
             topic_embedding = topic_embedding_cache[keywords_str]
 
             if topic_embedding is not None:
-                sexual_concept_embeddings = [
-                    CONCEPT_EMBEDDINGS.get("FLIRTATION"),
-                    CONCEPT_EMBEDDINGS.get("ROMANTIC"),
-                    CONCEPT_EMBEDDINGS.get("SEXUAL_ADVANCE")
-                ]
+                # Sexual score is based only on direct advances
+                sexual_embedding = CONCEPT_EMBEDDINGS.get("SEXUAL_ADVANCE")
+                if sexual_embedding is not None:
+                    scores['sexual'] = float(cosine_similarity(topic_embedding.reshape(1, -1), sexual_embedding.reshape(1, -1))[0][0])
 
-                max_similarity = 0.0
-                for concept_embedding in sexual_concept_embeddings:
-                    if concept_embedding is not None:
-                        similarity = cosine_similarity(topic_embedding.reshape(1, -1), concept_embedding.reshape(1, -1))[0][0]
-                        if similarity > max_similarity:
-                            max_similarity = similarity
-
-                scores['sexual'] = float(max_similarity)
+                # Romantic score is based on romance and flirtation
+                romantic_embeddings = [CONCEPT_EMBEDDINGS.get("ROMANTIC"), CONCEPT_EMBEDDINGS.get("FLIRTATION")]
+                max_romantic_sim = 0.0
+                for emb in romantic_embeddings:
+                    if emb is not None:
+                        sim = cosine_similarity(topic_embedding.reshape(1, -1), emb.reshape(1, -1))[0][0]
+                        if sim > max_romantic_sim:
+                            max_romantic_sim = sim
+                scores['romantic'] = float(max_romantic_sim)
 
         # --- Final Assignment based on Priority and Thresholds ---
         assigned = False
-        # Sort categories by priority to handle overlaps correctly
         for category, _ in sorted(CATEGORY_PRIORITY.items(), key=lambda item: item[1], reverse=True):
-            score = scores.get(category, 0)
+            score = scores.get(category, 0.0)
 
-            # Define thresholds for each category to allow for more nuanced control
-            threshold = 0.5 if category == 'sexual' else 0.6 # Stricter threshold for keyword matches
+            # Set a stricter threshold for sexual, a moderate one for romantic
+            threshold = 0.6
+            if category == 'sexual':
+                threshold = 0.6
+            elif category == 'romantic':
+                threshold = 0.5
 
             if score >= threshold:
                 final_categorized_topics[category].append(topic_name)
                 assigned = True
-                break # Assign to the highest priority category only
+                break
 
         if not assigned:
-            # Only assign to focus if it has a reasonably high score, otherwise neutral
             if scores.get('focus', 0) > 0.4:
                  final_categorized_topics["focus"].append(topic_name)
             else:

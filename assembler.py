@@ -25,6 +25,7 @@ def build_final_json(
         "avoid": categorized_topics.get("avoid", []),
         "neutral": categorized_topics.get("neutral", []),
         "sensitive": categorized_topics.get("sensitive", []),
+        "romantic": categorized_topics.get("romantic", []),
         "fetish": categorized_topics.get("fetish", []),
         "sexual": categorized_topics.get("sexual", [])
     }
