@@ -99,24 +99,30 @@ def score_and_categorize_topics(
         # --- Final Assignment based on Priority and Thresholds ---
         assigned = False
         for category, _ in sorted(CATEGORY_PRIORITY.items(), key=lambda item: item[1], reverse=True):
+            # Neutral is the fallback, so we don't check it in the loop
+            if category == 'neutral':
+                continue
+
             score = scores.get(category, 0.0)
 
-            # Set a stricter threshold for sexual, a moderate one for romantic
-            threshold = 0.6
+            # Set a specific threshold for each category
+            threshold = 0.5 # Default threshold
             if category == 'sexual':
                 threshold = 0.6
             elif category == 'romantic':
                 threshold = 0.5
+            elif category in ['sensitive', 'fetish', 'avoid']:
+                # Keyword-based scores are 1.0, so this ensures they are only triggered if matched
+                threshold = 0.9
+            elif category == 'focus':
+                threshold = 0.4
 
             if score >= threshold:
                 final_categorized_topics[category].append(topic_name)
                 assigned = True
-                break
+                break # Assign to the highest-priority category only
 
         if not assigned:
-            if scores.get('focus', 0) > 0.4:
-                 final_categorized_topics["focus"].append(topic_name)
-            else:
-                 final_categorized_topics["neutral"].append(topic_name)
+            final_categorized_topics["neutral"].append(topic_name)
 
     return dict(final_categorized_topics)
