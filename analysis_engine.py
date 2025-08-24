@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 from topic_engine import identify_topics
 from context_engine import extract_contextual_features
 from behavioral_engine import analyze_conversation_behavior
-from scoring_engine import score_and_categorize_topics
+from topic_categorizer import score_and_categorize_topics
 
 def run_full_analysis(
     my_profile: str,
