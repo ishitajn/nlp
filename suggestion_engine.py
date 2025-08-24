@@ -14,6 +14,14 @@ from model import Feedback
 GRAPH_DATA_PATH = "data/transition_graph.json"
 METADATA_PATH = "data/topic_metadata.json"
 
+# A list of high-quality, generic topics to suggest when the conversation lacks direction.
+EVERGREEN_TOPICS = [
+    "Spontaneous adventures", "Hidden talents", "Favorite type of humor",
+    "A passion project", "The perfect day", "Childhood dreams",
+    "Learning a new skill", "Favorite travel stories", "A guilty pleasure",
+    "What makes you feel alive"
+]
+
 class AdvancedSuggestionEngine:
     def __init__(self, analysis_data: Dict[str, Any], conversation_turns: List[Dict[str, Any]], identified_topics: List[Dict[str, Any]], feedback: Optional[List[Feedback]] = None):
         self.analysis = analysis_data
@@ -109,50 +117,59 @@ class AdvancedSuggestionEngine:
         return graph
 
     def get_suggestions(self) -> Dict[str, List[str]]:
+        """
+        Generates a list of new, relevant topics to suggest, avoiding repetition.
+        """
+        # 1. Get existing topic information
+        existing_topic_names = {t["canonical_name"] for t in self.topics}
+        existing_topic_embeddings = [t["centroid"] for t in self.topics if t.get("centroid") is not None]
+
         topic_sequence = self._get_topic_sequence()
         current_topic_name = next((t for t in reversed(topic_sequence) if t is not None), None)
 
-        candidate_info = defaultdict(lambda: {'score': 0.0, 'reasons': set()})
-
+        # 2. Generate a broad list of candidate topics
+        candidate_topics = set()
+        # Add candidates from the transition graph
         if current_topic_name and current_topic_name in self.transition_graph:
-            for next_topic, score in self.transition_graph[current_topic_name].items():
-                candidate_info[next_topic]['score'] += score
-                candidate_info[next_topic]['reasons'].add("Natural transition")
+            for next_topic in self.transition_graph[current_topic_name]:
+                candidate_topics.add(next_topic)
+        # Add evergreen topics for variety
+        for topic in EVERGREEN_TOPICS:
+            candidate_topics.add(topic)
 
-        all_topic_names = {t["canonical_name"] for t in self.topics}
-        for topic_name in all_topic_names:
-            if topic_name not in candidate_info:
-                candidate_info[topic_name]['score'] += 0.1
-                candidate_info[topic_name]['reasons'].add("Mentioned in conversation")
+        # 3. Filter candidates
+        # 3a. Remove topics already present in the conversation
+        filtered_candidates = [t for t in candidate_topics if t not in existing_topic_names]
 
-        recency_map = self.analysis.get("contextual_features", {}).get("topic_recency", {})
-        saliency_map = self.analysis.get("contextual_features", {}).get("topic_saliency", {})
+        # 3b. Remove topics that are too similar to any existing topic
+        if existing_topic_embeddings and filtered_candidates:
+            candidate_embeddings = embedder_service.encode_cached(filtered_candidates)
+            # Create a single matrix of existing embeddings for efficient comparison
+            existing_matrix = np.vstack(existing_topic_embeddings)
 
-        for topic_name, info in candidate_info.items():
-            if topic_name in recency_map:
-                info['score'] *= 0.5 * (1 / recency_map[topic_name])
-            if topic_name in saliency_map:
-                info['score'] += saliency_map[topic_name] * 0.2
+            # Calculate cosine similarity between all candidates and all existing topics
+            similarity_matrix = cosine_similarity(candidate_embeddings, existing_matrix)
 
-        if current_topic_name:
-            if current_topic_name in candidate_info:
-                del candidate_info[current_topic_name]
+            # Find the max similarity for each candidate to any existing topic
+            max_sim_per_candidate = similarity_matrix.max(axis=1)
 
-            candidate_names = list(candidate_info.keys())
-            if candidate_names:
-                current_topic_embedding = embedder_service.encode_cached([current_topic_name])[0]
-                candidate_embeddings = embedder_service.encode_cached(candidate_names)
-                similarities = cosine_similarity(current_topic_embedding.reshape(1, -1), candidate_embeddings)[0]
+            # Keep only candidates with a max similarity below a threshold
+            SIMILARITY_THRESHOLD = 0.80
+            final_candidates = [
+                candidate for i, candidate in enumerate(filtered_candidates)
+                if max_sim_per_candidate[i] < SIMILARITY_THRESHOLD
+            ]
+        else:
+            final_candidates = filtered_candidates
 
-                for i, topic_name in enumerate(candidate_names):
-                    if similarities[i] > 0.85:
-                        candidate_info[topic_name]['score'] *= 0.1
-                        candidate_info[topic_name]['reasons'].add("Similar to current topic")
+        # 4. Score the remaining candidates (simple scoring for now, can be enhanced)
+        # For now, we rely on the transition graph's implicit scores and the quality
+        # of the evergreen list. A more advanced scoring could use context features.
 
-        sorted_candidates = sorted(candidate_info.items(), key=lambda item: item[1]['score'], reverse=True)
-        top_topic_names = [t for t, i in sorted_candidates[:5]]
-
-        return {"topics": top_topic_names}
+        # 5. Return the top N suggestions
+        # If the transition graph provided candidates, they are likely more relevant.
+        # We can prioritize them, but for now, a simple slice is fine.
+        return {"topics": final_candidates[:5]}
 
 def generate_suggestions(
     analysis_data: Dict[str, Any],
