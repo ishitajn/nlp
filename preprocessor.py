@@ -6,6 +6,8 @@ import requests
 from typing import List, Dict
 # NEW: Library for expanding contractions like "don't" -> "do not"
 import contractions
+import os
+import json
 
 
 STOPWORDS = {
@@ -56,22 +58,41 @@ except OSError:
 
 # --- SlangHandler for Dynamic Slang Lookup (from previous version) ---
 class SlangHandler:
-    def __init__(self):
+    def __init__(self, cache_path="slang_cache.json"):
         self.api_url = "https://api.urbandictionary.com/v0/define"
-        self.cache: Dict[str, bool] = {}
+        self.cache_path = cache_path
+        self.cache: Dict[str, bool] = self._load_cache()
+
+    def _load_cache(self) -> Dict[str, bool]:
+        if os.path.exists(self.cache_path):
+            try:
+                with open(self.cache_path, 'r') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                return {}
+        return {}
+
+    def _save_cache(self):
+        with open(self.cache_path, 'w') as f:
+            json.dump(self.cache, f)
+
     def is_known_slang(self, term: str) -> bool:
         term = term.lower()
-        if term in self.cache: return self.cache[term]
+        if term in self.cache:
+            return self.cache[term]
         try:
             response = requests.get(self.api_url, params={"term": term}, timeout=2)
             response.raise_for_status()
             is_slang = bool(response.json().get("list"))
             self.cache[term] = is_slang
+            self._save_cache()
             return is_slang
         except (requests.RequestException, ValueError):
             self.cache[term] = False
             return False
 slang_handler = SlangHandler()
+
+kw_extractor = yake.KeywordExtractor(lan="en", n=2, top=1, features=None)
 
 # --- Constants for Text Manipulation ---
 NOISE_TERMS = {'hmmmm', 'mine', 'mind', 'faves', 'a bit lol'}
@@ -87,7 +108,6 @@ def _is_noise(phrase: str, doc: spacy.tokens.Doc) -> bool:
 
 def _shorten_phrase(phrase: str) -> str:
     if len(phrase.split()) <= 3: return phrase
-    kw_extractor = yake.KeywordExtractor(lan="en", n=2, top=1, features=None)
     keywords = kw_extractor.extract_keywords(phrase)
     return keywords[0][0] if keywords else phrase
 
@@ -113,12 +133,13 @@ def clean_text(text: str) -> str:
     return re.sub(r'\s+', ' ', text).strip()
 
 def clean_and_truncate(conversation_history: list, max_turns: int = 20) -> list:
-    if not conversation_history: return []
+    if not conversation_history:
+        return []
     truncated_history = conversation_history[-max_turns:]
-    cleaned_history = []
-    for turn in truncated_history:
-        if isinstance(turn, dict) and "content" in turn:
-            cleaned_turn = turn.copy()
-            cleaned_turn["content"] = clean_text(cleaned_turn["content"])
-            cleaned_history.append(cleaned_turn)
+    # Optimized with a list comprehension
+    cleaned_history = [
+        {**turn, "content": clean_text(turn.get("content", ""))}
+        for turn in truncated_history
+        if isinstance(turn, dict) and "content" in turn
+    ]
     return cleaned_history

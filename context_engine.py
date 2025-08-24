@@ -11,10 +11,18 @@ from pysentimiento import create_analyzer
 sentiment_analyzer = create_analyzer(task="sentiment", lang="en")
 
 # ... (analyze_power_dynamics function remains the same) ...
-ANALYSIS_SCHEMA = {
+ANALYSIS_SCHEMA_STRINGS = {
     "phases": { "Icebreaker": [r'\b(h(i|e+y+|ello)|how (are |u )?(you|u)( doin)?|your profile|we matched)\b'], "Rapport Building": [r'\b(tell me more|what about you|hobbies|passions|family|career|work|job|hiking|trip|travel)\b'], "Escalation": [r'\b(tension|desire|imagining|in person|what if|chemistry)\b'], "Explicit Banter": [r'\b(fuck|sex|nude|kink|sexting|horny|aroused)\b'], "Logistics": [r'\b(when are you free|let\'s meet|what\'s your number|schedule|date)\b'], },
     "tones": { "Playful": [r'\b(haha|lol|lmao|kidding|teasing|banter|playful|cheeky)\b', r'[😉😜😏]'], "Serious": [r'\b(to be honest|actually|my values|looking for|seriously)\b'], "Romantic": [r'\b(connection|special|beautiful|chemistry|heart|adore|lovely)\b'], "Complimentary": [r'\b(great|amazing|impressive|gorgeous|handsome|hot|sexy|cute)\b'], "Vulnerable": [r'\b(my feelings|i feel|struggle|opening up is hard|i feel safe with you)\b'], },
     "intents": { "Gathering Information": [r'\?'], "Building Comfort": [r'\b(that makes sense|i understand|thank you for sharing)\b'], "Testing Boundaries": [r'\b(what are you into|how adventurous|are you open to)\b'], "Making Plans": [r'\b(we should|let\'s|are you free|wanna grab)\b'], "Expressing Desire": [r'\b(i want you|i need you|can\'t stop thinking about you|i desire you)\b'], }
+}
+
+ANALYSIS_SCHEMA = {
+    category: {
+        tag_name: [re.compile(p) for p in patterns]
+        for tag_name, patterns in rules.items()
+    }
+    for category, rules in ANALYSIS_SCHEMA_STRINGS.items()
 }
 
 def analyze_power_dynamics(conversation_turns: List[Dict[str, Any]]) -> Dict[str, Any]:

@@ -7,9 +7,29 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from embedder import embedder_service
 
-# Constants
-METADATA_PATH = "app/data/topic_metadata.json"
+# --- Persistent Topic Metadata Handling (Optimized) ---
+METADATA_PATH = "data/topic_metadata.json"
 SUGGESTION_CATEGORIES = ["focus", "avoid", "neutral", "sensitive", "romantic", "fetish", "sexual"]
+
+def _load_topic_metadata() -> Dict[str, str]:
+    """Loads the topic metadata from a JSON file, once per application start."""
+    if os.path.exists(METADATA_PATH):
+        try:
+            with open(METADATA_PATH, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError):
+            pass
+    return {}
+
+def _save_topic_metadata(data: Dict[str, str]):
+    """Saves the topic metadata to a JSON file."""
+    os.makedirs(os.path.dirname(METADATA_PATH), exist_ok=True)
+    with open(METADATA_PATH, 'w') as f:
+        json.dump(data, f, indent=4)
+
+# Load metadata into a module-level cache on startup
+TOPIC_METADATA = _load_topic_metadata()
+
 
 class ContextualSuggestionEngine:
     """
@@ -19,27 +39,25 @@ class ContextualSuggestionEngine:
     def __init__(self, analysis_data: Dict[str, Any]):
         self.categorized_topics = analysis_data.get("categorized_topics", {})
         self.topic_map = analysis_data.get("topic_map", {})
-        self.topic_metadata = self._load_persistent_data()
+        self.topic_metadata = TOPIC_METADATA  # Use the cached metadata
         self.discussed_topics = {
             topic.lower()
             for topic_list in self.categorized_topics.values()
             for topic in topic_list
         }
 
-    def _load_persistent_data(self) -> Dict[str, str]:
-        if os.path.exists(METADATA_PATH):
-            try:
-                with open(METADATA_PATH, 'r') as f: return json.load(f)
-            except (json.JSONDecodeError, FileNotFoundError): pass
-        return {}
-
     def _update_and_save_persistent_data(self):
+        """Updates the global topic metadata cache and saves it to disk if changed."""
+        updated = False
         for category, topics in self.categorized_topics.items():
             for topic in topics:
-                self.topic_metadata[topic.lower()] = category
-        os.makedirs(os.path.dirname(METADATA_PATH), exist_ok=True)
-        with open(METADATA_PATH, 'w') as f:
-            json.dump(self.topic_metadata, f, indent=4)
+                topic_lower = topic.lower()
+                if topic_lower not in self.topic_metadata:
+                    self.topic_metadata[topic_lower] = category
+                    updated = True
+
+        if updated:
+            _save_topic_metadata(self.topic_metadata)
 
     def _find_semantically_similar_topics(self, seed_topics: List[str], category: str) -> List[str]:
         if not seed_topics: return []

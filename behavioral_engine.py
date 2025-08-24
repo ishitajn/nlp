@@ -14,6 +14,10 @@ SIMILARITY_THRESHOLDS = {
     "TIME_REFERENCE": 0.60, "LOCATION_REFERENCE": 0.60, "DISENGAGEMENT": 0.55,
     "PLANNING_LOGISTICS": 0.65
 }
+QUESTION_STARTERS_REGEX = re.compile(
+    r'^(who|what|where|when|why|how|is|are|do|does|did|will|can|could|should|would|have|has|had|am|was|were|don\'t|isn\'t|aren\'t)\b',
+    re.IGNORECASE
+)
 
 def _parse_timestamp(ts_str: Optional[str]) -> Optional[datetime]:
     if not ts_str or not isinstance(ts_str, str): return None
@@ -32,9 +36,9 @@ def _parse_timestamp(ts_str: Optional[str]) -> Optional[datetime]:
 
 def _check_semantic_similarity(text: str, text_embedding: np.ndarray, concept_name: str) -> bool:
     if concept_name == "ASKING_A_QUESTION":
-        if '?' in text.strip(): return True
-        question_starters = r'^(who|what|where|when|why|how|is|are|do|does|did|will|can|could|should|would|have|has|had|am|was|were|don\'t|isn\'t|aren\'t)\b'
-        if re.match(question_starters, text.strip(), re.IGNORECASE): return True
+        text_stripped = text.strip()
+        if '?' in text_stripped: return True
+        if QUESTION_STARTERS_REGEX.match(text_stripped): return True
 
     concept_embedding = CONCEPT_EMBEDDINGS.get(concept_name)
     if concept_embedding is None or text_embedding is None or not hasattr(text_embedding, 'reshape'): return False
@@ -52,6 +56,16 @@ def analyze_conversation_behavior(
     all_embeddings = embedder_service.encode_cached(all_contents)
     for i, turn in enumerate(conversation_turns):
         turn['embedding'] = all_embeddings[i] if i < len(all_embeddings) else None
+
+    # --- Local cache for semantic checks to avoid re-computation ---
+    semantic_cache = {}
+    def check_semantic_similarity_cached(text: str, embedding: np.ndarray, concept: str) -> bool:
+        cache_key = (text, concept)
+        if cache_key in semantic_cache:
+            return semantic_cache[cache_key]
+        result = _check_semantic_similarity(text, embedding, concept)
+        semantic_cache[cache_key] = result
+        return result
 
     last_user_turn: Optional[Dict] = None
     last_match_turn: Optional[Dict] = None
@@ -72,9 +86,9 @@ def analyze_conversation_behavior(
 
     last_match_embedding = last_match_turn.get('embedding') if last_match_turn else None
     last_match_content = last_match_turn.get('content', '') if last_match_turn else ''
-    analysis['match_last_message_has_question'] = _check_semantic_similarity(last_match_content, last_match_embedding, "ASKING_A_QUESTION")
-    analysis['Match_last_message_geo_context'] = _check_semantic_similarity(last_match_content, last_match_embedding, "LOCATION_REFERENCE") or \
-                                                 _check_semantic_similarity(last_match_content, last_match_embedding, "TIME_REFERENCE")
+    analysis['match_last_message_has_question'] = check_semantic_similarity_cached(last_match_content, last_match_embedding, "ASKING_A_QUESTION")
+    analysis['Match_last_message_geo_context'] = check_semantic_similarity_cached(last_match_content, last_match_embedding, "LOCATION_REFERENCE") or \
+                                                 check_semantic_similarity_cached(last_match_content, last_match_embedding, "TIME_REFERENCE")
 
     now = datetime.now(timezone.utc)
     analysis['last_user_greeted'] = False
@@ -84,7 +98,7 @@ def analyze_conversation_behavior(
         if not turn_time: continue
         if turn.get('role', 'user') == 'user':
             if turn_time > (now - timedelta(days=1)): user_active_recently = True
-            if turn_time > (now - timedelta(days=2)) and _check_semantic_similarity(turn.get('content', ''), turn.get('embedding'), "GREETING"):
+            if turn_time > (now - timedelta(days=2)) and check_semantic_similarity_cached(turn.get('content', ''), turn.get('embedding'), "GREETING"):
                 analysis['last_user_greeted'] = True
 
     # --- Flattened Flags ---
@@ -97,20 +111,20 @@ def analyze_conversation_behavior(
 
     last_turn_embedding = last_turn.get('embedding')
     last_turn_content = last_turn.get('content', '')
-    analysis['greeting_detected'] = _check_semantic_similarity(last_turn_content, last_turn_embedding, "GREETING")
-    analysis['flirtation_indicator'] = _check_semantic_similarity(last_turn_content, last_turn_embedding, "FLIRTATION")
-    analysis['time_reference_detected'] = _check_semantic_similarity(last_turn_content, last_turn_embedding, "TIME_REFERENCE")
-    analysis['location_reference_detected'] = _check_semantic_similarity(last_turn_content, last_turn_embedding, "LOCATION_REFERENCE")
+    analysis['greeting_detected'] = check_semantic_similarity_cached(last_turn_content, last_turn_embedding, "GREETING")
+    analysis['flirtation_indicator'] = check_semantic_similarity_cached(last_turn_content, last_turn_embedding, "FLIRTATION")
+    analysis['time_reference_detected'] = check_semantic_similarity_cached(last_turn_content, last_turn_embedding, "TIME_REFERENCE")
+    analysis['location_reference_detected'] = check_semantic_similarity_cached(last_turn_content, last_turn_embedding, "LOCATION_REFERENCE")
 
     recent_turns = conversation_turns[-5:]
-    question_count = sum(1 for t in recent_turns if _check_semantic_similarity(t.get('content', ''), t.get('embedding'), "ASKING_A_QUESTION"))
+    question_count = sum(1 for t in recent_turns if check_semantic_similarity_cached(t.get('content', ''), t.get('embedding'), "ASKING_A_QUESTION"))
     if question_count > 1: analysis['recent_engagement_score'] = "high"
     elif question_count > 0: analysis['recent_engagement_score'] = "medium"
     else: analysis['recent_engagement_score'] = "low"
 
     analysis['suggest_follow_up_question'] = not analysis['match_last_message_has_question']
     analysis['suggest_flirtation'] = not analysis['flirtation_indicator']
-    analysis['suggest_topic_shift'] = analysis['recent_engagement_score'] == 'low' or _check_semantic_similarity(last_turn_content, last_turn_embedding, "DISENGAGEMENT")
+    analysis['suggest_topic_shift'] = analysis['recent_engagement_score'] == 'low' or check_semantic_similarity_cached(last_turn_content, last_turn_embedding, "DISENGAGEMENT")
     analysis['suggest_greeting'] = not analysis['last_user_greeted'] and not user_active_recently
 
     return analysis

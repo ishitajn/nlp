@@ -20,13 +20,18 @@ def run_full_analysis(
     canonical_topics = list(topic_map.keys())
 
     # 2. Calculate Recency, Frequency, and Salience for all topics
-    topic_last_seen = {}
-    for i, turn in enumerate(processed_turns):
-        content = turn.get("content", "").lower()
-        for topic in canonical_topics:
-            if topic in content:
-                topic_last_seen[topic] = i
     
+    # Create a map of turn content to index for efficient lookup
+    turn_to_index = {frozenset(turn.items()): i for i, turn in enumerate(processed_turns)}
+
+    topic_last_seen = {}
+    for topic, turns in topic_map.items():
+        if turns:
+            indices = [turn_to_index.get(frozenset(turn.items())) for turn in turns]
+            valid_indices = [i for i in indices if i is not None]
+            if valid_indices:
+                topic_last_seen[topic] = max(valid_indices)
+
     recent_topics_sorted = sorted(topic_last_seen.items(), key=lambda item: item[1], reverse=True)
     recent_topics = [topic.title() for topic, index in recent_topics_sorted[:10]]
     

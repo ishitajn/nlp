@@ -1,5 +1,5 @@
-# In app/svc/planner.py
-
+# In planner.py
+import functools
 from geopy.geocoders import Nominatim
 from geopy.distance import great_circle
 from geopy.exc import GeocoderTimedOut, GeocoderUnavailable, GeocoderServiceError
@@ -14,6 +14,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 geolocator = Nominatim(user_agent="dating_conv_analyzer_v_final", timeout=10)
 tf = TimezoneFinder()
 
+@functools.lru_cache(maxsize=128)
 def get_location_details(location_string: str) -> Optional[Dict[str, Any]]:
     if not location_string or not isinstance(location_string, str): return None
     try:
