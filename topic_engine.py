@@ -141,7 +141,7 @@ def identify_topics(conversation_turns: List[Dict[str, Any]], their_profile: str
     if distance_matrix.dtype != np.float64:
         distance_matrix = distance_matrix.astype(np.float64)
 
-    clusterer = hdbscan.HDBSCAN(min_cluster_size=2, min_samples=1, metric='precomputed', cluster_selection_method='eom', allow_single_cluster=True)
+    clusterer = hdbscan.HDBSCAN(min_cluster_size=2, min_samples=1, metric='precomputed', cluster_selection_method='leaf', allow_single_cluster=True)
     cluster_labels = clusterer.fit_predict(distance_matrix)
 
     # Group texts by cluster label
