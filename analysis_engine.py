@@ -9,14 +9,17 @@ from behavioral_engine import analyze_conversation_behavior
 def run_full_analysis(
     my_profile: str,
     their_profile: str,
-    processed_turns: List[Dict[str, Any]]
+    processed_turns: List[Dict[str, Any]],
+    use_enhanced_nlp: bool = False
 ) -> Dict[str, Any]:
     """
     Orchestrates the full analysis pipeline with the final, robust topic engine.
     """
     
     # 1. Extract and canonicalize topics
-    topic_map, profile_topics = identify_and_canonicalize_topics(processed_turns, their_profile)
+    topic_map, profile_topics = identify_and_canonicalize_topics(
+        processed_turns, their_profile, use_enhanced_nlp=use_enhanced_nlp
+    )
     canonical_topics = list(topic_map.keys())
 
     # 2. Calculate Recency, Frequency, and Salience for all topics
@@ -49,16 +52,18 @@ def run_full_analysis(
         topic_map=topic_map,
         profile_topics=profile_topics,
         focus_topic=focus_topic,
-        topic_salience=topic_salience
+        topic_salience=topic_salience,
+        use_enhanced_nlp=use_enhanced_nlp
     )
 
     # 4. Run other analysis modules
-    behavioral_analysis = analyze_conversation_behavior(processed_turns)
+    behavioral_analysis = analyze_conversation_behavior(processed_turns, use_enhanced_nlp=use_enhanced_nlp)
     contextual_features = extract_contextual_features(
         conversation_turns=processed_turns,
         identified_topics_map=categorized_topics,
         my_profile=my_profile,
-        their_profile=their_profile
+        their_profile=their_profile,
+        use_enhanced_nlp=use_enhanced_nlp
     )
 
     # 5. Assemble the final analysis object

@@ -34,23 +34,30 @@ def extract_contextual_features(
     conversation_turns: List[Dict[str, Any]],
     identified_topics_map: Dict[str, List[str]],
     my_profile: str = "",
-    their_profile: str = ""
+    their_profile: str = "",
+    use_enhanced_nlp: bool = False
 ) -> Dict[str, Any]:
     conversation_history_str = "\n".join([t.get('content', '') for t in conversation_turns])
-    if not conversation_history_str.strip():
-        return {"sentiment_analysis": {"overall": "neutral"}}
+    
+    # --- Sentiment Analysis ---
+    # Enhanced mode focuses on recent turns for more immediate sentiment.
+    if use_enhanced_nlp:
+        turns_for_sentiment = conversation_turns[-4:]
+        text_for_sentiment = "\n".join([t.get('content', '') for t in turns_for_sentiment])
+    else:
+        text_for_sentiment = conversation_history_str
 
-    # --- Upgraded Sentiment Analysis using pysentimiento ---
-    result = sentiment_analyzer.predict(conversation_history_str)
-    probas = result.probas
-    
-    sentiment = "neutral"
-    if result.output == 'POS':
-        sentiment = "very positive" if probas['POS'] > 0.8 else "positive"
-    elif result.output == 'NEG':
-        sentiment = "very negative" if probas['NEG'] > 0.8 else "negative"
-    
-    analysis = {"sentiment_analysis": { "overall": sentiment, "probas": probas }}
+    if not text_for_sentiment.strip():
+        analysis = {"sentiment_analysis": {"overall": "neutral", "probas": {}}}
+    else:
+        result = sentiment_analyzer.predict(text_for_sentiment)
+        probas = result.probas
+        sentiment = "neutral"
+        if result.output == 'POS':
+            sentiment = "very positive" if probas['POS'] > 0.8 else "positive"
+        elif result.output == 'NEG':
+            sentiment = "very negative" if probas['NEG'] > 0.8 else "negative"
+        analysis = {"sentiment_analysis": { "overall": sentiment, "probas": probas }}
 
     # --- Other contextual features (remain the same) ---
     full_text_lower = f"{my_profile} {their_profile} {conversation_history_str}".lower()

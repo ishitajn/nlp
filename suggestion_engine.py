@@ -6,6 +6,7 @@ from typing import Dict, Any, List
 from sklearn.metrics.pairwise import cosine_similarity
 
 from embedder import embedder_service
+from preprocessor import extract_canonical_phrases
 
 # --- Persistent Topic Metadata Handling (Optimized) ---
 METADATA_PATH = "data/topic_metadata.json"
@@ -36,10 +37,14 @@ class ContextualSuggestionEngine:
     A predictive engine that generates novel, contextually-related topic suggestions
     based on topics already identified in the conversation.
     """
-    def __init__(self, analysis_data: Dict[str, Any]):
+    def __init__(self, analysis_data: Dict[str, Any], my_profile: str = "", their_profile: str = "", use_enhanced_nlp: bool = False):
+        self.analysis_data = analysis_data
+        self.my_profile = my_profile
+        self.their_profile = their_profile
+        self.use_enhanced_nlp = use_enhanced_nlp
         self.categorized_topics = analysis_data.get("categorized_topics", {})
         self.topic_map = analysis_data.get("topic_map", {})
-        self.topic_metadata = TOPIC_METADATA  # Use the cached metadata
+        self.topic_metadata = TOPIC_METADATA
         self.discussed_topics = {
             topic.lower()
             for topic_list in self.categorized_topics.values()
@@ -87,19 +92,52 @@ class ContextualSuggestionEngine:
         return [candidate_topics[i] for i in ranked_indices]
 
     def generate(self) -> Dict[str, List[str]]:
-        suggestions = {cat: [] for cat in SUGGESTION_CATEGORIES}
-        categories_to_predict = SUGGESTION_CATEGORIES
+        if self.use_enhanced_nlp:
+            suggestions = self._generate_enhanced_suggestions()
+        else:
+            suggestions = self._generate_standard_suggestions()
 
-        for category in categories_to_predict:
+        self._update_and_save_persistent_data()
+        return suggestions
+
+    def _generate_standard_suggestions(self) -> Dict[str, List[str]]:
+        """Generates suggestions based on existing conversation topics."""
+        suggestions = {cat: [] for cat in SUGGESTION_CATEGORIES}
+        for category in SUGGESTION_CATEGORIES:
             seed_topics = self.categorized_topics.get(category, [])
             if not seed_topics: continue
             
             predicted_topics = self._find_semantically_similar_topics(seed_topics, category)
             suggestions[category] = [topic.title() for topic in predicted_topics[:2]]
-
-        self._update_and_save_persistent_data()
         return suggestions
 
-def generate_suggestions(analysis_data: Dict[str, Any], **kwargs) -> Dict[str, List[str]]:
-    engine = ContextualSuggestionEngine(analysis_data)
+    def _generate_enhanced_suggestions(self) -> Dict[str, List[str]]:
+        """Generates richer suggestions using profile data and behavioral cues."""
+        suggestions = self._generate_standard_suggestions()
+
+        # Add personalized suggestions from profiles
+        profile_text = f"{self.my_profile} {self.their_profile}"
+        if profile_text.strip():
+            profile_phrases = extract_canonical_phrases(profile_text)
+            new_profile_topics = [p for p in profile_phrases if p.lower() not in self.discussed_topics]
+
+            if "neutral" not in suggestions:
+                suggestions["neutral"] = []
+            suggestions["neutral"].extend([t.title() for t in new_profile_topics[:3]])
+
+        # If engagement is low, suggest a new topic from profiles
+        behavioral_analysis = self.analysis_data.get("behavioral_analysis", {})
+        if behavioral_analysis.get("suggest_topic_shift"):
+            if 'new_profile_topics' in locals() and new_profile_topics:
+                suggestions["topic_shift_suggestion"] = [new_profile_topics[0].title()]
+
+        return suggestions
+
+def generate_suggestions(analysis_data: Dict[str, Any], my_profile: str = "", their_profile: str = "", use_enhanced_nlp: bool = False, **kwargs) -> Dict[str, List[str]]:
+    engine = ContextualSuggestionEngine(
+        analysis_data,
+        my_profile=my_profile,
+        their_profile=their_profile,
+        use_enhanced_nlp=use_enhanced_nlp
+    )
     return engine.generate()

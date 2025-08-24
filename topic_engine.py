@@ -39,9 +39,41 @@ def _consolidate_topic_groups(topics: List[str], threshold=80) -> List[List[str]
         processed.update(similar_group)
     return groups
 
+def _consolidate_topic_groups_semantic(topics: List[str], threshold=0.85) -> List[List[str]]:
+    if not topics:
+        return []
+
+    embeddings = embedder_service.encode_cached(topics)
+    if embeddings.size == 0:
+        return []
+
+    similarity_matrix = cosine_similarity(embeddings)
+
+    groups = []
+    processed_indices = set()
+
+    for i in range(len(topics)):
+        if i in processed_indices:
+            continue
+
+        # Find indices of similar topics (where similarity is above the threshold)
+        similar_indices = np.where(similarity_matrix[i] > threshold)[0]
+
+        # Create a group of topic strings from the indices
+        new_group = [topics[j] for j in similar_indices if j not in processed_indices]
+
+        if new_group:
+            groups.append(new_group)
+            # Add all indices from this new group to the processed set
+            for j in similar_indices:
+                processed_indices.add(j)
+
+    return groups
+
 def identify_and_canonicalize_topics(
     conversation_turns: List[Dict[str, Any]],
-    their_profile: str
+    their_profile: str,
+    use_enhanced_nlp: bool = False
 ) -> Tuple[Dict[str, List[Dict[str, Any]]], List[str]]:
     profile_topics = extract_canonical_phrases(their_profile)
     all_candidate_phrases, phrase_to_source_turns = [], defaultdict(list)
@@ -54,7 +86,11 @@ def identify_and_canonicalize_topics(
             phrase_to_source_turns[phrase].append(turn)
 
     filtered_phrases = _filter_and_correct_phrases(list(set(all_candidate_phrases + profile_topics)))
-    topic_groups = _consolidate_topic_groups(filtered_phrases)
+
+    if use_enhanced_nlp:
+        topic_groups = _consolidate_topic_groups_semantic(filtered_phrases)
+    else:
+        topic_groups = _consolidate_topic_groups(filtered_phrases)
 
     final_topic_map = defaultdict(list)
     for group in topic_groups:
@@ -74,11 +110,55 @@ def identify_and_canonicalize_topics(
     return final_topic_map, profile_topics
 
 
+def _categorize_topic_enhanced(topic: str, source_turns: List[Dict[str, Any]]) -> str:
+    """Categorizes a single topic using enhanced semantic analysis."""
+    source_contents = [turn['content'] for turn in source_turns]
+    if not source_contents:
+        return 'neutral'
+
+    contextual_embedding = np.mean(embedder_service.encode_cached(source_contents), axis=0).reshape(1, -1)
+
+    # Define a helper for similarity checks
+    def get_similarity(concept_name):
+        concept_emb = CONCEPT_EMBEDDINGS.get(concept_name)
+        if concept_emb is None: return 0.0
+        return cosine_similarity(contextual_embedding, concept_emb.reshape(1, -1))[0][0]
+
+    # Check against high-priority semantic concepts
+    if get_similarity("AVOID_TOPICS") > 0.6: return 'avoid'
+    if get_similarity("SENSITIVE_TOPICS") > 0.6: return 'sensitive'
+    if get_similarity("FETISH_TOPICS") > 0.65: return 'fetish'
+
+    is_logistics_indicator = any(ind in topic for ind in LOGISTICS_INDICATORS)
+    if not is_logistics_indicator and get_similarity("SEXUAL_ADVANCE") > 0.65:
+        return 'sexual'
+
+    is_romantic_indicator = any(ind in topic for ind in ROMANTIC_INDICATORS)
+    romantic_score = max(get_similarity("ROMANTIC"), get_similarity("FLIRTATION"))
+    if romantic_score > 0.62 or is_romantic_indicator:
+        return 'romantic'
+
+    return 'neutral'
+
+def _categorize_topic_standard(topic: str) -> str:
+    """Categorizes a single topic using standard keyword-based checks."""
+    for category, patterns in KEYWORD_CATEGORIES.items():
+        if any(pattern.search(topic) for pattern in patterns):
+            return category
+
+    is_romantic_indicator = any(ind in topic for ind in ROMANTIC_INDICATORS)
+    if is_romantic_indicator:
+        return 'romantic'
+
+    return 'neutral'
+
+
 def score_and_categorize_topics(
     topic_map: Dict[str, List[Dict[str, Any]]],
     profile_topics: List[str],
     focus_topic: str, # The single, most recent topic
-    topic_salience: Dict[str, float] # Pre-calculated scores for ranking
+    topic_salience: Dict[str, float], # Pre-calculated scores for ranking
+    use_enhanced_nlp: bool = False
 ) -> Dict[str, List[str]]:
     if not topic_map: return {cat: [] for cat in CATEGORY_PRIORITY}
     
@@ -89,35 +169,29 @@ def score_and_categorize_topics(
             topic_to_category[topic] = 'focus'
             continue
 
-        # Keyword-based categorization first
-        categorized = False
-        for category, patterns in KEYWORD_CATEGORIES.items():
-            if any(pattern.search(topic) for pattern in patterns):
-                topic_to_category[topic] = category
-                categorized = True
-                break
-        if categorized:
-            continue
+        if use_enhanced_nlp:
+            # The enhanced path uses full semantic analysis for categorization
+            topic_to_category[topic] = _categorize_topic_enhanced(topic, source_turns)
+        else:
+            # The standard path uses keywords first, then limited semantics
+            category = _categorize_topic_standard(topic)
+            if category == 'neutral': # Only run semantics if keywords don't match
+                source_contents = [turn['content'] for turn in source_turns]
+                contextual_embedding = np.mean(embedder_service.encode_cached(source_contents), axis=0)
+                is_logistics_indicator = any(ind in topic for ind in LOGISTICS_INDICATORS)
 
-        # Semantic categorization
-        source_contents = [turn['content'] for turn in source_turns]
-        contextual_embedding = np.mean(embedder_service.encode_cached(source_contents), axis=0)
-        is_romantic_indicator = any(ind in topic for ind in ROMANTIC_INDICATORS)
-        is_logistics_indicator = any(ind in topic for ind in LOGISTICS_INDICATORS)
+                if not is_logistics_indicator:
+                    sexual_emb = CONCEPT_EMBEDDINGS.get("SEXUAL_ADVANCE")
+                    if sexual_emb is not None and cosine_similarity(contextual_embedding.reshape(1, -1), sexual_emb.reshape(1, -1))[0][0] > 0.65:
+                        category = 'sexual'
 
-        if not is_logistics_indicator:
-            sexual_emb = CONCEPT_EMBEDDINGS.get("SEXUAL_ADVANCE")
-            if sexual_emb is not None and cosine_similarity(contextual_embedding.reshape(1, -1), sexual_emb.reshape(1, -1))[0][0] > 0.65:
-                topic_to_category[topic] = 'sexual'
-        
-        if topic not in topic_to_category:
-            romantic_embs = [CONCEPT_EMBEDDINGS.get("ROMANTIC"), CONCEPT_EMBEDDINGS.get("FLIRTATION")]
-            romantic_score = max((cosine_similarity(contextual_embedding.reshape(1, -1), emb.reshape(1, -1))[0][0] if emb is not None else 0.0) for emb in romantic_embs)
-            if romantic_score > 0.62 or is_romantic_indicator:
-                topic_to_category[topic] = 'romantic'
-        
-        if topic not in topic_to_category:
-            topic_to_category[topic] = 'neutral'
+                if category == 'neutral':
+                     romantic_embs = [CONCEPT_EMBEDDINGS.get("ROMANTIC"), CONCEPT_EMBEDDINGS.get("FLIRTATION")]
+                     romantic_score = max((cosine_similarity(contextual_embedding.reshape(1, -1), emb.reshape(1, -1))[0][0] if emb is not None else 0.0) for emb in romantic_embs)
+                     if romantic_score > 0.62:
+                         category = 'romantic'
+
+            topic_to_category[topic] = category
 
     # Assemble, Rank, and Limit
     final_output = defaultdict(list)

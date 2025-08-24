@@ -21,7 +21,12 @@ CONCEPT_DEFINITIONS = {
     "TIME_REFERENCE": "talking about time, dates, scheduling, today, tomorrow, this weekend, next week, morning, evening, hours, minutes",
     "LOCATION_REFERENCE": "talking about places, locations, meeting up, distance, city, country, here, there, neighborhood, area",
     "DISENGAGEMENT": "being unsure, ambiguous, non-committal, I don't know, maybe, we'll see, lol, haha, okay",
-    "PLANNING_LOGISTICS": "making plans, scheduling, organizing a meetup, suggesting a date, asking about availability"
+    "PLANNING_LOGISTICS": "making plans, scheduling, organizing a meetup, suggesting a date, asking about availability",
+
+    # --- Concepts for Enhanced Topic Categorization ---
+    "AVOID_TOPICS": "Contentious or polarizing subjects typically avoided in early conversation, such as politics, elections, government policy, specific political figures like Trump or Biden, religion, church, god, or the bible.",
+    "SENSITIVE_TOPICS": "Personal and sensitive subjects related to mental health, neurodivergence, or difficult life experiences. This includes therapy, trauma, autism, ADHD, OCD, BPD, depression, anxiety, grief, loss, death, divorce, illness, or disability.",
+    "FETISH_TOPICS": "Topics related to specific sexual kinks, fetishes, or BDSM dynamics. This includes discussions about domination, submission, dom, sub, daddy, kitten, leashes, collars, choking, spanking, or specific body part fetishes like feet."
 }
 
 # Pre-compute the embeddings for each concept for efficient reuse.

@@ -16,7 +16,8 @@ def build_final_json(
     payload: Dict[str, Any],
     analysis_data: Dict[str, Any],
     suggestions: Dict[str, Any],
-    geo: Dict[str, Any]
+    geo: Dict[str, Any],
+    use_enhanced_nlp: bool = False
 ) -> Dict[str, Any]:
     context = analysis_data.get("contextual_features", {})
     categorized_topics = analysis_data.get("categorized_topics", {})
@@ -50,33 +51,49 @@ def build_final_json(
         "pace": context.get("engagement_metrics", {}).get("pace", "steady"),
         "power_dynamics": context.get("power_dynamics", {})
     }
+    pipeline_version = "modular_semantic_v12.1_enhanced" if use_enhanced_nlp else "modular_semantic_v12.0"
     return {
         "matchId": payload.get("matchId"), "conversation_state": conversation_state,
         "geo": geo_output, "suggestions": final_suggestions,
         "analysis": final_analysis_object, "conversation_analysis": behavior,
-        "pipeline": "modular_semantic_v12.0"
+        "pipeline": pipeline_version
     }
 
-app = FastAPI(title="Dating Conversation Analyzer", version="12.0.0")
+app = FastAPI(title="Dating Conversation Analyzer", version="12.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
     payload_dict = payload.dict(by_alias=True)
+    use_enhanced_nlp = payload.ui_settings.use_enhanced_nlp
+
     cleaned_turns = await asyncio.to_thread(clean_and_truncate, payload_dict["scraped_data"]["conversationHistory"])
     if not cleaned_turns: raise HTTPException(status_code=400, detail="Conversation history is empty.")
     
-    analysis_task = asyncio.to_thread(run_full_analysis, payload.ui_settings.my_profile, payload.scraped_data.their_profile, cleaned_turns)
+    analysis_task = asyncio.to_thread(
+        run_full_analysis,
+        my_profile=payload.ui_settings.my_profile,
+        their_profile=payload.scraped_data.their_profile,
+        processed_turns=cleaned_turns,
+        use_enhanced_nlp=use_enhanced_nlp
+    )
     geo_task = asyncio.to_thread(compute_geo_time_features, payload.ui_settings.my_location, payload.scraped_data.their_location_string)
     analysis_results, geo_features = await asyncio.gather(analysis_task, geo_task)
     
     final_suggestions = await asyncio.to_thread(
         generate_suggestions,
-        analysis_data=analysis_results
+        analysis_data=analysis_results,
+        use_enhanced_nlp=use_enhanced_nlp,
+        my_profile=payload.ui_settings.my_profile,
+        their_profile=payload.scraped_data.their_profile
     )
     
     return await asyncio.to_thread(
-        build_final_json, payload=payload_dict, analysis_data=analysis_results,
-        suggestions=final_suggestions, geo=geo_features
+        build_final_json,
+        payload=payload_dict,
+        analysis_data=analysis_results,
+        suggestions=final_suggestions,
+        geo=geo_features,
+        use_enhanced_nlp=use_enhanced_nlp
     )
 
 @app.post("/analyze")

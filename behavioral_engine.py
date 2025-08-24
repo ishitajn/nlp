@@ -48,7 +48,8 @@ def _check_semantic_similarity(text: str, text_embedding: np.ndarray, concept_na
     return bool(similarity > threshold)
 
 def analyze_conversation_behavior(
-    conversation_turns: List[Dict[str, Any]]
+    conversation_turns: List[Dict[str, Any]],
+    use_enhanced_nlp: bool = False
 ) -> Dict[str, Any]:
     if not conversation_turns: return {}
 
@@ -116,11 +117,31 @@ def analyze_conversation_behavior(
     analysis['time_reference_detected'] = check_semantic_similarity_cached(last_turn_content, last_turn_embedding, "TIME_REFERENCE")
     analysis['location_reference_detected'] = check_semantic_similarity_cached(last_turn_content, last_turn_embedding, "LOCATION_REFERENCE")
 
+    # --- Engagement Score ---
     recent_turns = conversation_turns[-5:]
-    question_count = sum(1 for t in recent_turns if check_semantic_similarity_cached(t.get('content', ''), t.get('embedding'), "ASKING_A_QUESTION"))
-    if question_count > 1: analysis['recent_engagement_score'] = "high"
-    elif question_count > 0: analysis['recent_engagement_score'] = "medium"
-    else: analysis['recent_engagement_score'] = "low"
+    if use_enhanced_nlp:
+        # Enhanced mode uses a more nuanced engagement score
+        user_questions = sum(1 for t in recent_turns if t.get('role', 'user') == 'user' and check_semantic_similarity_cached(t.get('content', ''), t.get('embedding'), "ASKING_A_QUESTION"))
+        match_questions = sum(1 for t in recent_turns if t.get('role', 'user') != 'user' and check_semantic_similarity_cached(t.get('content', ''), t.get('embedding'), "ASKING_A_QUESTION"))
+        user_word_count = sum(len(t.get('content', '').split()) for t in recent_turns if t.get('role', 'user') == 'user')
+
+        if user_questions > 0 and match_questions > 0:
+            analysis['recent_engagement_score'] = "high"
+        elif user_questions > 0 or match_questions > 0:
+            analysis['recent_engagement_score'] = "medium"
+        elif user_word_count > 15:
+            analysis['recent_engagement_score'] = "medium"
+        else:
+            analysis['recent_engagement_score'] = "low"
+    else:
+        # Standard mode uses a simple question count
+        question_count = sum(1 for t in recent_turns if check_semantic_similarity_cached(t.get('content', ''), t.get('embedding'), "ASKING_A_QUESTION"))
+        if question_count > 1:
+            analysis['recent_engagement_score'] = "high"
+        elif question_count > 0:
+            analysis['recent_engagement_score'] = "medium"
+        else:
+            analysis['recent_engagement_score'] = "low"
 
     analysis['suggest_follow_up_question'] = not analysis['match_last_message_has_question']
     analysis['suggest_flirtation'] = not analysis['flirtation_indicator']
