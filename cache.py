@@ -4,10 +4,24 @@ import json
 import sqlite3
 from typing import Dict, Any, Optional, Tuple
 import os
+import numpy as np
 
 # Define the path to the SQLite database
 DB_PATH = "data/embedding_cache.sqlite"
 TABLE_NAME = "analysis_cache"
+
+class NumpyEncoder(json.JSONEncoder):
+    """ Custom encoder for numpy data types """
+    def default(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        return super(NumpyEncoder, self).default(obj)
 
 def _initialize_cache_db():
     """Initializes the cache table in the SQLite database if it doesn't exist."""
@@ -53,8 +67,8 @@ def set_cached_data(key: str, analysis_data: Dict[str, Any], suggestion_data: Di
     try:
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
-            analysis_str = json.dumps(analysis_data)
-            suggestion_str = json.dumps(suggestion_data)
+            analysis_str = json.dumps(analysis_data, cls=NumpyEncoder)
+            suggestion_str = json.dumps(suggestion_data, cls=NumpyEncoder)
             cursor.execute(f"""
             INSERT OR REPLACE INTO {TABLE_NAME} (cache_key, analysis_data, suggestion_data)
             VALUES (?, ?, ?)
