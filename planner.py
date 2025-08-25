@@ -68,6 +68,8 @@ def compute_geo_time_features(my_location_str: str, their_location_str: str) -> 
                 my_time_obj = datetime.now(my_tz)
                 geo_features["my_location"]["current_time"] = my_time_obj.isoformat()
                 geo_features["my_location"]["time_of_day"] = get_time_of_day(my_time_obj.hour)
+                geo_features["my_location"]["day_of_week"] = my_time_obj.strftime('%A')
+                geo_features["my_location"]["is_weekend"] = my_time_obj.weekday() >= 5  # Saturday or Sunday
                 geo_features["my_location"]["timezone"] = str(my_tz)
             except pytz.UnknownTimeZoneError:
                 geo_features["my_location"]["timezone"] = "Unknown"
@@ -81,6 +83,8 @@ def compute_geo_time_features(my_location_str: str, their_location_str: str) -> 
                 their_time_obj = datetime.now(their_tz)
                 geo_features["their_location"]["current_time"] = their_time_obj.isoformat()
                 geo_features["their_location"]["time_of_day"] = get_time_of_day(their_time_obj.hour)
+                geo_features["their_location"]["day_of_week"] = their_time_obj.strftime('%A')
+                geo_features["their_location"]["is_weekend"] = their_time_obj.weekday() >= 5
                 geo_features["their_location"]["timezone"] = str(their_tz)
             except pytz.UnknownTimeZoneError:
                 geo_features["their_location"]["timezone"] = "Unknown"
