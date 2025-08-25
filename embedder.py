@@ -1,5 +1,9 @@
 # In embedder.py
+"""
+Handles text embedding using a cached, ONNX-optimized sentence transformer.
+"""
 import os
+import logging
 import sqlite3
 import numpy as np
 from pathlib import Path
@@ -8,7 +12,10 @@ from sentence_transformers import SentenceTransformer
 from optimum.onnxruntime import ORTModelForFeatureExtraction
 from transformers import AutoTokenizer
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 def mean_pooling(model_output, attention_mask):
+    """Performs mean pooling on token embeddings."""
     token_embeddings = model_output[0]
     input_mask_expanded = np.expand_dims(attention_mask, axis=-1).repeat(token_embeddings.shape[-1], axis=-1)
     sum_embeddings = np.sum(token_embeddings * input_mask_expanded, axis=1)
@@ -16,7 +23,17 @@ def mean_pooling(model_output, attention_mask):
     return sum_embeddings / sum_mask
 
 class Embedder:
+    """
+    A service class for generating text embeddings, with ONNX optimization and SQLite caching.
+    """
     def __init__(self, model_name: str = 'BAAI/bge-large-en-v1.5', db_path: str = "data/embedding_cache.sqlite"):
+        """
+        Initializes the Embedder service.
+
+        Args:
+            model_name: The name of the SentenceTransformer model to use.
+            db_path: The file path for the SQLite cache database.
+        """
         self.model_name = model_name
         self.db_path = db_path
         self.model_dir = Path("models")
@@ -29,35 +46,44 @@ class Embedder:
         self._init_db()
 
     def _init_model(self):
+        """Initializes the model, converting to ONNX format if it doesn't exist."""
         if not self.onnx_path.exists() or not list(self.onnx_path.glob("*.onnx")):
-            print("ONNX model not found. Starting one-time export process...")
+            logging.info("ONNX model not found. Starting one-time export process...")
             original_model = SentenceTransformer(self.model_name)
             original_model.save(str(self.onnx_path))
 
-            # Convert to ONNX using optimum
             original_model.save_pretrained(path=str(self.onnx_path))
             self.model = ORTModelForFeatureExtraction.from_pretrained(self.onnx_path, export=True)
             self.model.save_pretrained(save_directory=str(self.onnx_path))
-            print("Export complete.")
+            logging.info("Export complete.")
 
-        print("Loading ONNX model for inference...")
+        logging.info("Loading ONNX model for inference...")
         self.model = ORTModelForFeatureExtraction.from_pretrained(self.onnx_path)
         self.tokenizer = AutoTokenizer.from_pretrained(self.onnx_path)
 
     def _init_db(self):
+        """Initializes the SQLite database for caching embeddings."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("CREATE TABLE IF NOT EXISTS embeddings (sentence TEXT PRIMARY KEY, embedding BLOB)")
             conn.commit()
 
     def encode_cached(self, sentences: List[str]) -> np.ndarray:
+        """
+        Encodes a list of sentences, using a cache to avoid re-computing existing embeddings.
+
+        Args:
+            sentences: A list of strings to encode.
+
+        Returns:
+            A numpy array of embeddings, ordered according to the input list.
+        """
         if not sentences:
             return np.array([])
 
         final_embeddings = {}
         unique_sentences = set(s for s in sentences if s)
         
-        # 1. Check cache for existing embeddings
         cached_sentences = {}
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
@@ -69,10 +95,8 @@ class Embedder:
 
         final_embeddings.update(cached_sentences)
 
-        # 2. Identify sentences that need to be encoded
         new_sentences_to_encode = list(unique_sentences - set(cached_sentences.keys()))
 
-        # 3. Encode new sentences if any
         if new_sentences_to_encode:
             inputs = self.tokenizer(new_sentences_to_encode, padding=True, truncation=True, return_tensors='np')
             model_output = self.model(**inputs)
@@ -80,19 +104,16 @@ class Embedder:
             new_embeddings = pooled_output / np.linalg.norm(pooled_output, axis=1, keepdims=True)
             new_embeddings = new_embeddings.astype(np.float32)
 
-            # 4. Add new embeddings to the final dictionary and prepare for DB insertion
             db_insert_data = []
             for sentence, embedding_array in zip(new_sentences_to_encode, new_embeddings):
                 final_embeddings[sentence] = embedding_array.reshape(1, -1)
                 db_insert_data.append((sentence, embedding_array.tobytes()))
 
-            # 5. Batch insert new embeddings into the database
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.executemany("INSERT OR IGNORE INTO embeddings (sentence, embedding) VALUES (?, ?)", db_insert_data)
                 conn.commit()
 
-        # 6. Order the embeddings according to the original input list
         ordered_embeddings = [final_embeddings[s] for s in sentences if s in final_embeddings]
         return np.vstack(ordered_embeddings) if ordered_embeddings else np.array([])
 

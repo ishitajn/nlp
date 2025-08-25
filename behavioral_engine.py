@@ -1,5 +1,6 @@
 # In behavioral_engine.py
 import re
+import logging
 import numpy as np
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
@@ -7,6 +8,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from embedder import embedder_service
 from semantic_concepts import CONCEPT_EMBEDDINGS
+
+# --- Setup ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- Constants ---
 SIMILARITY_THRESHOLDS = {
@@ -20,6 +24,11 @@ QUESTION_STARTERS_REGEX = re.compile(
 )
 
 def _parse_timestamp(ts_str: Optional[str]) -> Optional[datetime]:
+    """
+    Robustly parses a timestamp string into a timezone-aware datetime object.
+
+    Handles multiple common formats, including ISO 8601 with and without 'Z'.
+    """
     if not ts_str or not isinstance(ts_str, str): return None
     if ts_str.endswith('Z'): ts_str = ts_str[:-1] + '+00:00'
     formats_to_try = ["%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]
@@ -31,10 +40,15 @@ def _parse_timestamp(ts_str: Optional[str]) -> Optional[datetime]:
     try:
         dt = datetime.fromisoformat(ts_str)
         return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
-    except (ValueError, TypeError): pass
+    except (ValueError, TypeError):
+        logging.warning(f"Could not parse timestamp: {ts_str}")
     return None
 
 def _check_semantic_similarity(text: str, text_embedding: np.ndarray, concept_name: str) -> bool:
+    """
+    Checks if a text's embedding is semantically similar to a pre-defined concept.
+    Includes special handling for questions to improve accuracy.
+    """
     if concept_name == "ASKING_A_QUESTION":
         text_stripped = text.strip()
         if '?' in text_stripped: return True
@@ -51,6 +65,15 @@ def analyze_conversation_behavior(
     conversation_turns: List[Dict[str, Any]],
     use_enhanced_nlp: bool = False
 ) -> Dict[str, Any]:
+    """
+    Analyzes the behavioral aspects of a conversation.
+
+    This includes:
+    - Identifying the last message from each participant.
+    - Detecting questions, geo/time context, greetings, and flirtation.
+    - Calculating engagement score and conversation pace.
+    - Generating flags for downstream suggestion logic.
+    """
     if not conversation_turns: return {}
 
     all_contents = [turn.get('content', '') for turn in conversation_turns]
@@ -147,5 +170,27 @@ def analyze_conversation_behavior(
     analysis['suggest_flirtation'] = not analysis['flirtation_indicator']
     analysis['suggest_topic_shift'] = analysis['recent_engagement_score'] == 'low' or check_semantic_similarity_cached(last_turn_content, last_turn_embedding, "DISENGAGEMENT")
     analysis['suggest_greeting'] = not analysis['last_user_greeted'] and not user_active_recently
+
+    # --- Pace Calculation ---
+    time_deltas = []
+    if len(conversation_turns) > 1:
+        for i in range(1, len(conversation_turns)):
+            prev_turn_time = _parse_timestamp(conversation_turns[i-1].get('date'))
+            curr_turn_time = _parse_timestamp(conversation_turns[i].get('date'))
+            if prev_turn_time and curr_turn_time:
+                delta = (curr_turn_time - prev_turn_time).total_seconds()
+                if delta > 0:
+                    time_deltas.append(delta)
+
+    if not time_deltas:
+        analysis['pace'] = "steady"
+    else:
+        avg_delta_minutes = (sum(time_deltas) / len(time_deltas)) / 60
+        if avg_delta_minutes < 5:
+            analysis['pace'] = "fast"
+        elif avg_delta_minutes < 60:
+            analysis['pace'] = "steady"
+        else:
+            analysis['pace'] = "slow"
 
     return analysis

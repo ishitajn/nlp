@@ -20,6 +20,19 @@ def build_final_json(
     geo: Dict[str, Any],
     use_enhanced_nlp: bool = False
 ) -> Dict[str, Any]:
+    """
+    Assembles the final JSON response from all the analysis components.
+
+    Args:
+        payload: The original request payload.
+        analysis_data: The dictionary containing results from all analysis engines.
+        suggestions: The dictionary of generated suggestions.
+        geo: The dictionary of geo-time features.
+        use_enhanced_nlp: Flag indicating if enhanced NLP was used.
+
+    Returns:
+        The final, structured dictionary for the API response.
+    """
     context = analysis_data.get("contextual_features", {})
     categorized_topics = analysis_data.get("categorized_topics", {})
     behavior = analysis_data.get("behavioral_analysis", {})
@@ -34,18 +47,9 @@ def build_final_json(
     geo_output = {}
     if geo:
         distance_km, time_diff_hours = geo.get('distance_km'), geo.get('time_difference_hours')
-        user_location = geo.get("my_location", {})
-        match_location = geo.get("their_location", {})
-
-        # Enhance location info with day of week and weekend status
-        for loc_info in [user_location, match_location]:
-            if loc_info.get('current_time'):
-                # These are now calculated in planner.py
-                pass
-
         geo_output = {
-            "userLocation": user_location,
-            "matchLocation": match_location,
+            "userLocation": geo.get("my_location", {}),
+            "matchLocation": geo.get("their_location", {}),
             "time_difference_hours": int(round(time_diff_hours)) if time_diff_hours is not None else None,
             "distance_km": distance_km,
             "distance_miles": int(distance_km * 0.621371) if distance_km is not None else None,
@@ -56,11 +60,13 @@ def build_final_json(
     flirtation_indicator = behavior.get('flirtation_indicator', False)
     has_sexual_topics = bool(categorized_topics.get("sexual"))
     flirtation_level = "very high" if has_sexual_topics else "high" if flirtation_indicator else "low"
+
+    # Corrected: Engagement metrics come from behavioral analysis
     final_analysis_object = {
         "sentiment": context.get("sentiment_analysis", {}).get("overall", "neutral"),
         "flirtation_level": flirtation_level,
-        "engagement": context.get("engagement_metrics", {}).get("level", "low"),
-        "pace": context.get("engagement_metrics", {}).get("pace", "steady"),
+        "engagement": behavior.get("recent_engagement_score", "low"),
+        "pace": behavior.get("pace", "steady"),
         "power_dynamics": context.get("power_dynamics", {})
     }
     pipeline_version = "modular_semantic_v12.1_enhanced" if use_enhanced_nlp else "modular_semantic_v12.0"
@@ -75,6 +81,23 @@ app = FastAPI(title="Dating Conversation Analyzer", version="12.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
+    """
+    Runs the full analysis pipeline for a given conversation payload.
+
+    This function orchestrates the entire process:
+    1. Checks for cached results.
+    2. If no cache, cleans and truncates the conversation.
+    3. Runs analysis (topics, behavior, context) and geo-time features in parallel.
+    4. Generates suggestions based on the analysis.
+    5. Caches the new results.
+    6. Builds and returns the final JSON response.
+
+    Args:
+        payload: The AnalyzePayload object containing all input data.
+
+    Returns:
+        A dictionary representing the final JSON response.
+    """
     payload_dict = payload.dict(by_alias=True)
     use_enhanced_nlp = payload.ui_settings.use_enhanced_nlp
     match_id = payload_dict.get("matchId")

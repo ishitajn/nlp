@@ -48,16 +48,18 @@ STOPWORDS = {
 # --- Service Initialization ---
 try:
     nlp = spacy.load("en_core_web_trf")
-    # NEW: Upgraded, comprehensive stopword list for social media
     for word in STOPWORDS:
         nlp.Defaults.stop_words.add(word)
     print("spaCy model 'en_core_web_trf' loaded and customized successfully.")
 except OSError:
-    print("Spacy model 'en_core_web_trf' not found. Please run: python -m spacy download en_core_web_trf")
-    nlp = None
+    raise RuntimeError(
+        "spaCy model 'en_core_web_trf' not found. "
+        "Please run: python -m spacy download en_core_web_trf"
+    )
 
-# --- SlangHandler for Dynamic Slang Lookup (from previous version) ---
+# --- SlangHandler for Dynamic Slang Lookup ---
 class SlangHandler:
+    """Handles checking for slang terms via the Urban Dictionary API with caching."""
     def __init__(self, cache_path="slang_cache.json"):
         self.api_url = "https://api.urbandictionary.com/v0/define"
         self.cache_path = cache_path
@@ -99,6 +101,7 @@ NOISE_TERMS = {'hmmmm', 'mine', 'mind', 'faves', 'a bit lol'}
 VALID_POS = {'NOUN', 'PROPN', 'VERB', 'ADJ'}
 
 def _is_noise(phrase: str, doc: spacy.tokens.Doc) -> bool:
+    """Determines if a phrase is likely conversational noise."""
     phrase_lower = phrase.lower()
     if phrase_lower in NOISE_TERMS: return True
     tokens = [token for token in doc if token.text.lower() in phrase_lower]
@@ -107,17 +110,16 @@ def _is_noise(phrase: str, doc: spacy.tokens.Doc) -> bool:
     return False
 
 def _shorten_phrase(phrase: str) -> str:
+    """Shortens a long phrase to its most essential keywords."""
     if len(phrase.split()) <= 3: return phrase
     keywords = kw_extractor.extract_keywords(phrase)
     return keywords[0][0] if keywords else phrase
 
 def extract_canonical_phrases(text: str) -> List[str]:
-    if not nlp or not text: return []
+    """Extracts key phrases from text using NLP, returning canonical forms."""
+    if not text: return []
     
-    # --- NEW: Normalization Pipeline ---
-    # 1. Expand contractions ("don't" -> "do not")
     text = contractions.fix(text)
-    # 2. Normalize repeated letters ("soooo" -> "soo")
     text = re.sub(r'(.)\1{2,}', r'\1\1', text)
     
     doc = nlp(text.lower())
@@ -129,14 +131,17 @@ def extract_canonical_phrases(text: str) -> List[str]:
     return list(dict.fromkeys(canonical_phrases))
 
 def clean_text(text: str) -> str:
+    """Removes extra whitespace from a string."""
     if not isinstance(text, str): return ""
     return re.sub(r'\s+', ' ', text).strip()
 
 def clean_and_truncate(conversation_history: list, max_turns: int = 20) -> list:
+    """
+    Cleans the content of each turn and truncates the conversation history.
+    """
     if not conversation_history:
         return []
     truncated_history = conversation_history[-max_turns:]
-    # Optimized with a list comprehension
     cleaned_history = [
         {**turn, "content": clean_text(turn.get("content", ""))}
         for turn in truncated_history

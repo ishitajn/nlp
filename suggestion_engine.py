@@ -114,6 +114,7 @@ class ContextualSuggestionEngine:
     def _generate_enhanced_suggestions(self) -> Dict[str, List[str]]:
         """Generates richer suggestions using profile data and behavioral cues."""
         suggestions = self._generate_standard_suggestions()
+        new_profile_topics = [] # Initialize to prevent NameError
 
         # Add personalized suggestions from profiles
         profile_text = f"{self.my_profile} {self.their_profile}"
@@ -127,13 +128,27 @@ class ContextualSuggestionEngine:
 
         # If engagement is low, suggest a new topic from profiles
         behavioral_analysis = self.analysis_data.get("behavioral_analysis", {})
-        if behavioral_analysis.get("suggest_topic_shift"):
-            if 'new_profile_topics' in locals() and new_profile_topics:
-                suggestions["topic_shift_suggestion"] = [new_profile_topics[0].title()]
+        if behavioral_analysis.get("suggest_topic_shift") and new_profile_topics:
+            suggestions["topic_shift_suggestion"] = [new_profile_topics[0].title()]
 
         return suggestions
 
 def generate_suggestions(analysis_data: Dict[str, Any], my_profile: str = "", their_profile: str = "", use_enhanced_nlp: bool = False, **kwargs) -> Dict[str, List[str]]:
+    """
+    Main function to generate conversational suggestions based on analysis data.
+
+    This function initializes and runs the ContextualSuggestionEngine to generate
+    topic suggestions. It can operate in a standard or enhanced mode.
+
+    Args:
+        analysis_data: The main analysis object from the analysis pipeline.
+        my_profile: The user's profile text.
+        their_profile: The match's profile text.
+        use_enhanced_nlp: Flag to enable enhanced suggestion generation.
+
+    Returns:
+        A dictionary of categorized topic suggestions.
+    """
     engine = ContextualSuggestionEngine(
         analysis_data,
         my_profile=my_profile,
