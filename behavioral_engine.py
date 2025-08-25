@@ -127,11 +127,17 @@ def analyze_conversation_behavior(
 
     # --- Flattened Flags ---
     last_turn_time = _parse_timestamp(last_turn.get('date') or last_turn.get('timestamp'))
-    if not last_turn_time: analysis['Last_message_day'] = "Unknown"
-    elif len(conversation_turns) < 5: analysis['Last_message_day'] = "New Conversation"
-    elif last_turn_time > (now - timedelta(days=2)): analysis['Last_message_day'] = "Active Conversation"
-    elif last_turn_time > (now - timedelta(days=7)): analysis['Last_message_day'] = "Recent Conversation"
-    else: analysis['Last_message_day'] = "Old Conversation"
+    if not last_turn_time:
+        analysis['conversation_state'] = "Unknown"
+    elif 1 <= len(conversation_turns) <= 5 and last_turn_time <= (now - timedelta(days=2)):
+        analysis['conversation_state'] = "EARLY_CONVO"
+    elif last_turn_time <= (now - timedelta(days=2)):
+        analysis['conversation_state'] = "ACTIVE_CONVO"
+    elif (now - timedelta(days=2)) < last_turn_time <= (now - timedelta(days=7)):
+        analysis['conversation_state'] = "REENGAGING_DAY"
+    elif (now - timedelta(days=7)) < last_turn_time <= (now - timedelta(days=30)) :
+        analysis['conversation_state'] = "REENGAGING_WEEK"
+    else: analysis['conversation_state'] = "REENGAGING_MONTH"
 
     last_turn_embedding = last_turn.get('embedding')
     last_turn_content = last_turn.get('content', '')

@@ -48,9 +48,13 @@ def get_location_details(location_string: str) -> Optional[Dict[str, Any]]:
     return None
 
 def get_time_of_day(hour: int) -> str:
-    if 5 <= hour < 12: return "morning"
-    elif 12 <= hour < 17: return "afternoon"
-    elif 17 <= hour < 21: return "evening"
+    if hour < 5: return 'late night'
+    elif hour < 8: return 'early morning'
+    elif hour < 12: return 'morning'
+    elif hour < 14: return 'afternoon'
+    elif hour < 17: return 'late afternoon'
+    elif hour < 19: return 'evening'
+    elif hour < 22: return 'late evening'
     else: return "night"
 
 def compute_geo_time_features(my_location_str: str, their_location_str: str) -> Dict[str, Any]:

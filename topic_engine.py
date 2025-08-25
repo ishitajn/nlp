@@ -1,7 +1,7 @@
 # In topic_engine.py
 import re
 import numpy as np
-from typing import List, Dict, Any, Set, Tuple
+from typing import List, Dict, Any, Tuple
 from collections import defaultdict
 from sklearn.metrics.pairwise import cosine_similarity
 from rapidfuzz import fuzz

@@ -132,7 +132,8 @@ def extract_canonical_phrases(text: str) -> List[str]:
 
 def clean_text(text: str) -> str:
     """Removes extra whitespace from a string."""
-    if not isinstance(text, str): return ""
+    if not isinstance(text, str):
+        return ""
     return re.sub(r'\s+', ' ', text).strip()
 
 def clean_and_truncate(conversation_history: list, max_turns: int = 20) -> list:

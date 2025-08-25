@@ -13,6 +13,9 @@ from planner import compute_geo_time_features
 from suggestion_engine import generate_suggestions
 from cache import generate_and_check_cache, set_cached_data
 
+fl = open('load.json', 'a+')
+fa = open('analysis.json', 'a+')
+
 def build_final_json(
     payload: Dict[str, Any],
     analysis_data: Dict[str, Any],
@@ -98,7 +101,7 @@ async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
     Returns:
         A dictionary representing the final JSON response.
     """
-    payload_dict = payload.dict(by_alias=True)
+    payload_dict = payload.model_dump(by_alias=True)
     use_enhanced_nlp = payload.ui_settings.use_enhanced_nlp
     match_id = payload_dict.get("matchId")
     conversation_history = payload_dict["scraped_data"]["conversationHistory"]
@@ -146,11 +149,14 @@ async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
 
 @app.post("/analyze")
 async def analyze_conversation_endpoint(payload: AnalyzePayload):
-    return await run_analysis_pipeline(payload)
+    fl.write(payload.model_dump_json(indent=4) + '\n,\n')
+    r_payload = await run_analysis_pipeline(payload)
+    fa.write(payload.model_dump_json(indent=4) + '\n,\n')
+    return r_payload
 
 @app.get("/")
 async def root():
     return {"message": "Dating Conversation Analyzer v12.0 is running."}
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)

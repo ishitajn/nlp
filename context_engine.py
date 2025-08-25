@@ -1,8 +1,6 @@
 # In context_engine.py
 import re
 from typing import List, Dict, Any
-from collections import Counter
-# NEW: Import the powerful, transformer-based sentiment analyzer
 from pysentimiento import create_analyzer
 
 # --- Service Initialization ---
