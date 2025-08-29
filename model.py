@@ -2,7 +2,7 @@
 Defines the Pydantic models for the API request and response structures.
 """
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal, Dict
+from typing import List, Optional, Literal, Dict, Any
 
 
 # --- Pydantic Models ---
@@ -77,5 +77,6 @@ class FinalResponse(BaseModel):
     match_id: str = Field(..., alias="matchId")
     response: str
     conversation_analysis: ConversationAnalysisResponse = Field(..., alias="conversationAnalysis")
+    suggestions: Optional[Dict[str, Any]] = None
     pipeline: str
     debug_data: Optional[Dict[str, Any]] = Field(None, alias="debugData")

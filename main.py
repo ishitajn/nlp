@@ -10,7 +10,7 @@ from preprocessor import clean_and_truncate
 from analysis_engine import run_full_analysis
 from model import AnalyzePayload, FinalResponse, ConversationAnalysisResponse, LastMessageAnalysisResponse, MemoryResponse, UISettings
 from planner import compute_geo_time_features
-from suggestion_engine import generate_suggestion_flags
+from suggestion_engine import generate_suggestions
 from cache import generate_and_check_cache, set_cached_data
 
 fl = open('load.json', 'a+')
@@ -19,6 +19,7 @@ fa = open('analysis.json', 'a+')
 def build_final_json(
     payload: Dict[str, Any],
     analysis_data: Dict[str, Any],
+    suggestions: Dict[str, Any],
     geo: Dict[str, Any],
     ui_settings: UISettings
 ) -> Dict[str, Any]:
@@ -44,15 +45,14 @@ def build_final_json(
         memory=memory
     )
 
-    pipeline_version = "modular_semantic_v13.0_enhanced" if ui_settings.use_enhanced_nlp else "modular_semantic_v13.0"
+    pipeline_version = "modular_semantic_v13.1_enhanced" if ui_settings.use_enhanced_nlp else "modular_semantic_v13.1"
 
     # Prepare debug data if enabled
     debug_data = None
     if ui_settings.debug_mode_enabled:
-        suggestion_flags = generate_suggestion_flags(ui_settings, analysis_data)
+        # The suggestion flags logic is now part of the old suggestion engine, so we don't call it separately.
         debug_data = {
             "raw_analysis": analysis_data,
-            "suggestion_flags": suggestion_flags,
             "geo_features": geo
         }
 
@@ -60,28 +60,27 @@ def build_final_json(
         match_id=payload.get("matchId"),
         response="[Placeholder for generative response]",
         conversation_analysis=conversation_analysis,
+        suggestions=suggestions,
         pipeline=pipeline_version,
         debug_data=debug_data
     )
 
     return final_response.model_dump(by_alias=True, exclude_none=True)
 
-app = FastAPI(title="Dating Conversation Analyzer", version="13.0.0")
+app = FastAPI(title="Dating Conversation Analyzer", version="13.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
     """
-    Runs the full analysis pipeline for a given conversation payload.
-    This version removes the suggestion engine and focuses on analysis.
+    Runs the full analysis pipeline for a given conversation payload, including the restored suggestion engine.
     """
     ui_settings = payload.ui_settings
 
-    # Caching logic remains the same...
     cached_result, cache_key = await asyncio.to_thread(
         generate_and_check_cache, payload.match_id, ui_settings.use_enhanced_nlp, payload.scraped_data.conversation_history
     )
     if cached_result:
-        analysis_results = cached_result[0]
+        analysis_results, final_suggestions = cached_result
     else:
         cleaned_turns = await asyncio.to_thread(clean_and_truncate, payload.scraped_data.conversation_history)
         if not cleaned_turns: raise HTTPException(status_code=400, detail="Conversation history is empty.")
@@ -98,9 +97,19 @@ async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
         ) if ui_settings.geo_context_toggle else asyncio.sleep(0, result={})
 
         analysis_results, geo_features = await asyncio.gather(analysis_task, geo_task)
-        await asyncio.to_thread(set_cached_data, cache_key, analysis_results, None)
 
-    # Geo features might not have been cached, so we compute them if they are missing
+        final_suggestions = await asyncio.to_thread(
+            generate_suggestions,
+            categorized_topics=analysis_results.get("categorized_topics", {}),
+            topic_map=analysis_results.get("topic_map", {}),
+            behavioral_analysis=analysis_results.get("behavioral_analysis", {}),
+            use_enhanced_nlp=ui_settings.use_enhanced_nlp,
+            my_profile=ui_settings.my_profile,
+            their_profile=payload.scraped_data.their_profile
+        )
+
+        await asyncio.to_thread(set_cached_data, cache_key, analysis_results, final_suggestions)
+
     if 'geo_features' not in locals():
         geo_features = await asyncio.to_thread(
             compute_geo_time_features, ui_settings.my_location, payload.scraped_data.their_location_string
@@ -110,6 +119,7 @@ async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
         build_final_json,
         payload=payload.model_dump(by_alias=True),
         analysis_data=analysis_results,
+        suggestions=final_suggestions,
         geo=geo_features,
         ui_settings=ui_settings
     )
