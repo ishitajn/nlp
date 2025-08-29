@@ -8,9 +8,9 @@ from typing import Dict, Any
 
 from preprocessor import clean_and_truncate
 from analysis_engine import run_full_analysis
-from model import AnalyzePayload
+from model import AnalyzePayload, FinalResponse, ConversationAnalysisResponse, LastMessageAnalysisResponse, MemoryResponse, UISettings
 from planner import compute_geo_time_features
-from suggestion_engine import generate_suggestions
+from suggestion_engine import generate_suggestion_flags
 from cache import generate_and_check_cache, set_cached_data
 
 fl = open('load.json', 'a+')
@@ -19,132 +19,99 @@ fa = open('analysis.json', 'a+')
 def build_final_json(
     payload: Dict[str, Any],
     analysis_data: Dict[str, Any],
-    suggestions: Dict[str, Any],
     geo: Dict[str, Any],
-    use_enhanced_nlp: bool = False
+    ui_settings: UISettings
 ) -> Dict[str, Any]:
     """
-    Assembles the final JSON response from all the analysis components.
-
-    Args:
-        payload: The original request payload.
-        analysis_data: The dictionary containing results from all analysis engines.
-        suggestions: The dictionary of generated suggestions.
-        geo: The dictionary of geo-time features.
-        use_enhanced_nlp: Flag indicating if enhanced NLP was used.
-
-    Returns:
-        The final, structured dictionary for the API response.
+    Assembles the final JSON response from all the analysis components into the new nested structure.
     """
-    context = analysis_data.get("contextual_features", {})
-    categorized_topics = analysis_data.get("categorized_topics", {})
     behavior = analysis_data.get("behavioral_analysis", {})
-    recent_topics = analysis_data.get("recent_topics", [])
-    final_topics_object = {
-        "focus": categorized_topics.get("focus", []), "avoid": categorized_topics.get("avoid", []),
-        "neutral": categorized_topics.get("neutral", []), "sensitive": categorized_topics.get("sensitive", []),
-        "romantic": categorized_topics.get("romantic", []), "fetish": categorized_topics.get("fetish", []),
-        "sexual": categorized_topics.get("sexual", [])
-    }
-    conversation_state = {"topics": final_topics_object, "recent_topics": recent_topics}
-    geo_output = {}
-    if geo:
-        distance_km, time_diff_hours = geo.get('distance_km'), geo.get('time_difference_hours')
-        geo_output = {
-            "userLocation": geo.get("my_location", {}),
-            "matchLocation": geo.get("their_location", {}),
-            "time_difference_hours": int(round(time_diff_hours)) if time_diff_hours is not None else None,
-            "distance_km": distance_km,
-            "distance_miles": int(distance_km * 0.621371) if distance_km is not None else None,
-            "is_virtual": geo.get("is_virtual", False)
+    context = analysis_data.get("contextual_features", {})
+    memory_features = context.get("memory_features", {})
+    last_message_analysis_data = analysis_data.get("last_message_analysis", {})
+
+    last_message_analysis = LastMessageAnalysisResponse(**last_message_analysis_data)
+    memory = MemoryResponse(
+        date_arc_phase=memory_features.get("date_arc_phase", "Unknown"),
+        inside_jokes=memory_features.get("inside_jokes", []),
+        avoided_topics=memory_features.get("avoided_topics", []),
+        question_history=memory_features.get("question_history", [])
+    )
+    conversation_analysis = ConversationAnalysisResponse(
+        conversation_state=behavior.get("conversation_state", "Unknown"),
+        suppress_greeting=not behavior.get("suggest_greeting", True),
+        last_message_analysis=last_message_analysis,
+        memory=memory
+    )
+
+    pipeline_version = "modular_semantic_v13.0_enhanced" if ui_settings.use_enhanced_nlp else "modular_semantic_v13.0"
+
+    # Prepare debug data if enabled
+    debug_data = None
+    if ui_settings.debug_mode_enabled:
+        suggestion_flags = generate_suggestion_flags(ui_settings, analysis_data)
+        debug_data = {
+            "raw_analysis": analysis_data,
+            "suggestion_flags": suggestion_flags,
+            "geo_features": geo
         }
-    final_suggestions = suggestions
-    final_suggestions["topic_shift_recommended"] = behavior.get("suggest_topic_shift", False)
-    flirtation_indicator = behavior.get('flirtation_indicator', False)
-    has_sexual_topics = bool(categorized_topics.get("sexual"))
-    flirtation_level = "very high" if has_sexual_topics else "high" if flirtation_indicator else "low"
 
-    # Corrected: Engagement metrics come from behavioral analysis
-    final_analysis_object = {
-        "sentiment": context.get("sentiment_analysis", {}).get("overall", "neutral"),
-        "flirtation_level": flirtation_level,
-        "engagement": behavior.get("recent_engagement_score", "low"),
-        "pace": behavior.get("pace", "steady"),
-        "power_dynamics": context.get("power_dynamics", {})
-    }
-    pipeline_version = "modular_semantic_v12.1_enhanced" if use_enhanced_nlp else "modular_semantic_v12.0"
-    return {
-        "matchId": payload.get("matchId"), "conversation_state": conversation_state,
-        "geo": geo_output, "suggestions": final_suggestions,
-        "analysis": final_analysis_object, "conversation_analysis": behavior,
-        "pipeline": pipeline_version
-    }
+    final_response = FinalResponse(
+        match_id=payload.get("matchId"),
+        response="[Placeholder for generative response]",
+        conversation_analysis=conversation_analysis,
+        pipeline=pipeline_version,
+        debug_data=debug_data
+    )
 
-app = FastAPI(title="Dating Conversation Analyzer", version="12.1.0")
+    return final_response.model_dump(by_alias=True, exclude_none=True)
+
+app = FastAPI(title="Dating Conversation Analyzer", version="13.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 async def run_analysis_pipeline(payload: AnalyzePayload) -> dict:
     """
     Runs the full analysis pipeline for a given conversation payload.
-
-    This function orchestrates the entire process:
-    1. Checks for cached results.
-    2. If no cache, cleans and truncates the conversation.
-    3. Runs analysis (topics, behavior, context) and geo-time features in parallel.
-    4. Generates suggestions based on the analysis.
-    5. Caches the new results.
-    6. Builds and returns the final JSON response.
-
-    Args:
-        payload: The AnalyzePayload object containing all input data.
-
-    Returns:
-        A dictionary representing the final JSON response.
+    This version removes the suggestion engine and focuses on analysis.
     """
-    payload_dict = payload.model_dump(by_alias=True)
-    use_enhanced_nlp = payload.ui_settings.use_enhanced_nlp
-    match_id = payload_dict.get("matchId")
-    conversation_history = payload_dict["scraped_data"]["conversationHistory"]
+    ui_settings = payload.ui_settings
 
-    # Check cache first
+    # Caching logic remains the same...
     cached_result, cache_key = await asyncio.to_thread(
-        generate_and_check_cache, match_id, use_enhanced_nlp, conversation_history
+        generate_and_check_cache, payload.match_id, ui_settings.use_enhanced_nlp, payload.scraped_data.conversation_history
     )
     if cached_result:
-        analysis_results, final_suggestions = cached_result
-        # Still need to compute geo features as they are dynamic
-        geo_features = await asyncio.to_thread(compute_geo_time_features, payload.ui_settings.my_location, payload.scraped_data.their_location_string)
+        analysis_results = cached_result[0]
     else:
-        cleaned_turns = await asyncio.to_thread(clean_and_truncate, conversation_history)
+        cleaned_turns = await asyncio.to_thread(clean_and_truncate, payload.scraped_data.conversation_history)
         if not cleaned_turns: raise HTTPException(status_code=400, detail="Conversation history is empty.")
 
         analysis_task = asyncio.to_thread(
             run_full_analysis,
-            my_profile=payload.ui_settings.my_profile,
+            my_profile=ui_settings.my_profile,
             their_profile=payload.scraped_data.their_profile,
             processed_turns=cleaned_turns,
-            use_enhanced_nlp=use_enhanced_nlp
+            use_enhanced_nlp=ui_settings.use_enhanced_nlp
         )
-        geo_task = asyncio.to_thread(compute_geo_time_features, payload.ui_settings.my_location, payload.scraped_data.their_location_string)
-        analysis_results, geo_features = await asyncio.gather(analysis_task, geo_task)
+        geo_task = asyncio.to_thread(
+            compute_geo_time_features, ui_settings.my_location, payload.scraped_data.their_location_string
+        ) if ui_settings.geo_context_toggle else asyncio.sleep(0, result={})
 
-        final_suggestions = await asyncio.to_thread(
-            generate_suggestions,
-            analysis_data=analysis_results,
-            use_enhanced_nlp=use_enhanced_nlp,
-            my_profile=payload.ui_settings.my_profile,
-            their_profile=payload.scraped_data.their_profile
-        )
-        # Save to cache
-        await asyncio.to_thread(set_cached_data, cache_key, analysis_results, final_suggestions)
+        analysis_results, geo_features = await asyncio.gather(analysis_task, geo_task)
+        await asyncio.to_thread(set_cached_data, cache_key, analysis_results, None)
+
+    # Geo features might not have been cached, so we compute them if they are missing
+    if 'geo_features' not in locals():
+        geo_features = await asyncio.to_thread(
+            compute_geo_time_features, ui_settings.my_location, payload.scraped_data.their_location_string
+        ) if ui_settings.geo_context_toggle else {}
 
     return await asyncio.to_thread(
         build_final_json,
-        payload=payload_dict,
+        payload=payload.model_dump(by_alias=True),
         analysis_data=analysis_results,
-        suggestions=final_suggestions,
         geo=geo_features,
-        use_enhanced_nlp=use_enhanced_nlp
+        ui_settings=ui_settings
     )
 
 @app.post("/analyze")
