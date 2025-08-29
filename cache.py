@@ -43,7 +43,9 @@ _initialize_cache_db()
 
 def _generate_cache_key(match_id: str, use_enhanced_nlp: bool, conversation_history: list) -> str:
     """Generates a consistent SHA-256 hash for the given inputs."""
-    conv_str = json.dumps(conversation_history, sort_keys=True)
+    # Convert Pydantic models to dicts before serializing
+    serializable_history = [turn.model_dump() for turn in conversation_history]
+    conv_str = json.dumps(serializable_history, sort_keys=True)
     base_string = f"{match_id}-{use_enhanced_nlp}-{conv_str}"
     return hashlib.sha256(base_string.encode('utf-8')).hexdigest()
 
