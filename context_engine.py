@@ -4,7 +4,7 @@ from typing import List, Dict, Any
 from collections import Counter
 from pysentimiento import create_analyzer
 
-from behavioral_engine import _parse_timestamp
+from utils import parse_timestamp
 from preprocessor import extract_canonical_phrases
 
 # --- Service Initialization ---
@@ -34,7 +34,7 @@ def analyze_power_dynamics(conversation_turns: List[Dict[str, Any]]) -> Dict[str
     user_response_times, match_response_times = [], []
     last_turn_time, last_turn_role = None, None
     for turn in conversation_turns:
-        role, content, timestamp = turn.get('role', 'assistant').lower(), turn.get('content', ''), _parse_timestamp(turn.get('date'))
+        role, content, timestamp = turn.get('role', 'assistant').lower(), turn.get('content', ''), parse_timestamp(turn.get('date'))
         word_count = len(content.split())
         if role == 'user': user_word_count += word_count
         else: match_word_count += word_count

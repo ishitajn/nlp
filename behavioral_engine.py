@@ -23,26 +23,7 @@ QUESTION_STARTERS_REGEX = re.compile(
     re.IGNORECASE
 )
 
-def _parse_timestamp(ts_str: Optional[str]) -> Optional[datetime]:
-    """
-    Robustly parses a timestamp string into a timezone-aware datetime object.
-
-    Handles multiple common formats, including ISO 8601 with and without 'Z'.
-    """
-    if not ts_str or not isinstance(ts_str, str): return None
-    if ts_str.endswith('Z'): ts_str = ts_str[:-1] + '+00:00'
-    formats_to_try = ["%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]
-    for fmt in formats_to_try:
-        try:
-            dt = datetime.strptime(ts_str, fmt)
-            return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
-        except (ValueError, TypeError): continue
-    try:
-        dt = datetime.fromisoformat(ts_str)
-        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
-    except (ValueError, TypeError):
-        logging.warning(f"Could not parse timestamp: {ts_str}")
-    return None
+from utils import parse_timestamp
 
 def _check_semantic_similarity(text: str, text_embedding: np.ndarray, concept_name: str) -> bool:
     """
@@ -118,7 +99,7 @@ def analyze_conversation_behavior(
     analysis['last_user_greeted'] = False
     user_active_recently = False
     for turn in conversation_turns:
-        turn_time = _parse_timestamp(turn.get('date') or turn.get('timestamp'))
+        turn_time = parse_timestamp(turn.get('date') or turn.get('timestamp'))
         if not turn_time: continue
         if turn.get('role', 'user') == 'user':
             if turn_time > (now - timedelta(days=1)): user_active_recently = True
@@ -126,7 +107,7 @@ def analyze_conversation_behavior(
                 analysis['last_user_greeted'] = True
 
     # --- Flattened Flags ---
-    last_turn_time = _parse_timestamp(last_turn.get('date') or last_turn.get('timestamp'))
+    last_turn_time = parse_timestamp(last_turn.get('date') or last_turn.get('timestamp'))
     if not last_turn_time:
         analysis['conversation_state'] = "Unknown"
     elif 1 <= len(conversation_turns) <= 5 and last_turn_time <= (now - timedelta(days=2)):
@@ -181,8 +162,8 @@ def analyze_conversation_behavior(
     time_deltas = []
     if len(conversation_turns) > 1:
         for i in range(1, len(conversation_turns)):
-            prev_turn_time = _parse_timestamp(conversation_turns[i-1].get('date'))
-            curr_turn_time = _parse_timestamp(conversation_turns[i].get('date'))
+            prev_turn_time = parse_timestamp(conversation_turns[i-1].get('date'))
+            curr_turn_time = parse_timestamp(conversation_turns[i].get('date'))
             if prev_turn_time and curr_turn_time:
                 delta = (curr_turn_time - prev_turn_time).total_seconds()
                 if delta > 0:
