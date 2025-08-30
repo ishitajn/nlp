@@ -34,8 +34,12 @@ def build_final_response(
 
     # --- Build Nested Pydantic Objects ---
 
+    # Pop 'intents' so it can be transformed and passed separately, avoiding a TypeError.
+    intents_raw = last_message_analysis_data.pop('intents', [])
+    mapped_intents = [INTENT_MAP.get(i, i.upper()) for i in intents_raw]
+
     last_message_analysis = LastMessageAnalysis(
-        intents=[INTENT_MAP.get(i, i.upper()) for i in last_message_analysis_data.get('intents', [])],
+        intents=mapped_intents,
         **last_message_analysis_data
     )
 
