@@ -11,6 +11,7 @@ from analysis_engine import run_full_analysis
 from model import AnalyzePayload, FinalResponse, ConversationAnalysisResponse, LastMessageAnalysisResponse, MemoryResponse, UISettings
 from planner import compute_geo_time_features
 from suggestion_engine import generate_suggestions
+from behavioral_engine import analyze_last_message_details
 from cache import generate_and_check_cache, set_cached_data
 
 fl = open('load.json', 'a+')
@@ -30,6 +31,11 @@ def build_final_json(
     context = analysis_data.get("contextual_features", {})
     memory_features = context.get("memory_features", {})
     last_message_analysis_data = analysis_data.get("last_message_analysis", {})
+
+    # Defensively handle cases where last_message_analysis might be missing
+    if not last_message_analysis_data:
+        print("WARNING: 'last_message_analysis' key was missing. Generating default structure to prevent crash.")
+        last_message_analysis_data = analyze_last_message_details(None)
 
     last_message_analysis = LastMessageAnalysisResponse(**last_message_analysis_data)
     memory = MemoryResponse(
