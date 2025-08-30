@@ -57,6 +57,39 @@ class AnalyzePayload(BaseModel):
 
 # --- Pydantic Models for API Response (Matching Frontend Structure) ---
 
+# --- Models for the new 'additional_analysis' section ---
+class OldConversationAnalysis(BaseModel):
+    last_message_from_user: Optional[str] = None
+    last_message_from_match: Optional[str] = None
+    Last_message_from: str
+    match_last_message_has_question: bool
+    last_user_greeted: bool
+    conversation_state: str
+    greeting_detected: bool
+    flirtation_indicator: bool
+    recent_engagement_score: str
+    suggest_topic_shift: bool
+    suggest_greeting: bool
+    pace: str
+
+class OldAnalysis(BaseModel):
+    sentiment: str
+    flirtation_level: str
+    engagement: str
+    pace: str
+    power_dynamics: Dict[str, Any]
+
+class OldConversationState(BaseModel):
+    topics: Dict[str, List[str]]
+    recent_topics: List[str]
+
+class AdditionalAnalysis(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    conversation_analysis: OldConversationAnalysis = Field(..., alias="conversationAnalysis")
+    analysis: OldAnalysis
+    conversation_state: OldConversationState = Field(..., alias="conversationState")
+
+
 class LastMessageAnalysisResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -94,5 +127,6 @@ class FinalResponse(BaseModel):
     conversation_analysis: ConversationAnalysisResponse = Field(..., alias="conversationAnalysis")
     suggestions: Optional[Dict[str, Any]] = None
     geo: Optional[Dict[str, Any]] = None
+    additional_analysis: Optional[AdditionalAnalysis] = Field(None, alias="additionalAnalysis")
     pipeline: str
     debug_data: Optional[Dict[str, Any]] = Field(None, alias="debugData")
