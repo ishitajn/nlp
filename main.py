@@ -44,12 +44,14 @@ def build_final_json(
         avoided_topics=memory_features.get("avoided_topics", []),
         question_history=memory_features.get("question_history", [])
     )
-    conversation_analysis = ConversationAnalysisResponse(
-        conversation_state=behavior.get("conversation_state", "Unknown"),
-        suppress_greeting=not behavior.get("suggest_greeting", True),
-        last_message_analysis=last_message_analysis,
-        memory=memory
-    )
+    # Build the conversation_analysis object robustly
+    conversation_analysis_data = {
+        "conversation_state": behavior.get("conversation_state", "Unknown"),
+        "suppress_greeting": not behavior.get("suggest_greeting", True),
+        "last_message_analysis": last_message_analysis,
+        "memory": memory
+    }
+    conversation_analysis = ConversationAnalysisResponse.model_validate(conversation_analysis_data)
 
     pipeline_version = "modular_semantic_v13.1_enhanced" if ui_settings.use_enhanced_nlp else "modular_semantic_v13.1"
 
