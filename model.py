@@ -41,11 +41,18 @@ class UISettings(BaseModel):
     local_model_name: Optional[str] = Field(None, alias="local_model_name")
 
 
+class Feedback(BaseModel):
+    """Represents user feedback on a given suggestion."""
+    current_topic: str
+    chosen_suggestion: str
+    action: Literal["chosen", "dismissed"]
+
 class AnalyzePayload(BaseModel):
     """The main payload for the /analyze endpoint."""
     match_id: str = Field(..., alias="matchId")
     scraped_data: ScrapedData
     ui_settings: UISettings
+    feedback: Optional[List[Feedback]] = None
 
 
 # --- Pydantic Models for API Response (Matching Frontend Structure) ---
@@ -86,5 +93,6 @@ class FinalResponse(BaseModel):
     response: str
     conversation_analysis: ConversationAnalysisResponse = Field(..., alias="conversationAnalysis")
     suggestions: Optional[Dict[str, Any]] = None
+    geo: Optional[Dict[str, Any]] = None
     pipeline: str
     debug_data: Optional[Dict[str, Any]] = Field(None, alias="debugData")

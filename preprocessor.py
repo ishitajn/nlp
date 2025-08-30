@@ -1,89 +1,39 @@
-# In preprocessor.py
+"""
+This module contains functions for cleaning and preprocessing text, as well as
+extracting key phrases (topics) from conversation turns.
+"""
 import re
-import spacy
-import yake
-import requests
-from typing import List, Dict
-# NEW: Library for expanding contractions like "don't" -> "do not"
-import contractions
 import os
 import json
-
-
-STOPWORDS = {
-    "a", "about", "above", "across", "after", "afterwards", "again", "against", "all", "almost", "alone", "along",
-    "already", "also", "although", "always", "am", "among", "amongst", "amoungst", "amount", "an", "and", "another",
-    "any", "anyhow", "anyone", "anything", "anyway", "anywhere", "are", "around", "as", "at", "back", "be",
-    "became", "because", "become", "becomes", "becoming", "been", "before", "beforehand", "behind", "being",
-    "below", "beside", "besides", "between", "beyond", "bill", "both", "bottom", "but", "by", "call", "can",
-    "cannot", "cant", "co", "computer", "con", "could", "couldnt", "cry", "de", "describe", "detail", "do",
-    "done", "down", "due", "during", "each", "eg", "eight", "either", "eleven", "else", "elsewhere", "empty",
-    "enough", "etc", "even", "ever", "every", "everyone", "everything", "everywhere", "except", "few", "fifteen",
-    "fify", "fill", "find", "fire", "first", "five", "for", "former", "formerly", "forty", "found", "four",
-    "from", "front", "full", "further", "get", "give", "go", "had", "has", "hasnt", "have", "he", "hence", "her",
-    "here", "hereafter", "hereby", "herein", "hereupon", "hers", "herself", "him", "himself", "his", "how",
-    "however", "hundred", "i", "ie", "if", "in", "inc", "indeed", "interest", "into", "is", "it", "its", "itself",
-    "keep", "last", "latter", "latterly", "least", "less", "ltd", "made", "many", "may", "me", "meanwhile",
-    "might", "mill", "mine", "more", "moreover", "most", "mostly", "move", "much", "must", "my", "myself",
-    "name", "namely", "neither", "never", "nevertheless", "next", "nine", "no", "nobody", "none", "noone",
-    "nor", "not", "nothing", "now", "nowhere", "of", "off", "often", "on", "once", "one", "only", "onto", "or",
-    "other", "others", "otherwise", "our", "ours", "ourselves", "out", "over", "own", "part", "per", "perhaps",
-    "please", "put", "rather", "re", "same", "see", "seem", "seemed", "seeming", "seems", "serious", "several",
-    "she", "should", "show", "side", "since", "sincere", "six", "sixty", "so", "some", "somehow", "someone",
-    "something", "sometime", "sometimes", "somewhere", "still", "such", "system", "take", "ten", "than",
-
-    "that", "the", "their", "them", "themselves", "then", "thence", "there", "thereafter", "thereby", "therefore",
-    "therein", "thereupon", "these", "they", "thick", "thin", "third", "this", "those", "though", "three",
-    "through", "throughout", "thru", "thus", "to", "together", "too", "top", "toward", "towards", "twelve",
-    "twenty", "two", "un", "under", "until", "up", "upon", "us", "very", "via", "was", "we", "well", "were",
-    "what", "whatever", "when", "whence", "whenever", "where", "whereafter", "whereas", "whereby", "wherein",
-    "whereupon", "wherever", "whether", "which", "while", "whither", "who", "whoever", "whole", "whom", "whose",
-    "why", "will", "with", "within", "without", "would", "yet", "you", "your", "yours", "yourself", "yourselves",
-    # Social media / chat specific stopwords
-    'lol', 'wbu', 'hmmm', 'n’t', 'nt', 'im', 'u', 'r', 'ur', 'y', 'tho', 'btw', 'omg', 'idk', 'tbh', 'imo', 'irl', 'fr',
-    'ikr', 'smh', 'ily', 'wyd', 'brb', 'gonna', 'wanna', 'gotta', 'kinda', 'hey', 'hi', 'hello', 'sup', 'yo'
-}
-
-
-# --- Service Initialization ---
-try:
-    nlp = spacy.load("en_core_web_trf")
-    for word in STOPWORDS:
-        nlp.Defaults.stop_words.add(word)
-    print("spaCy model 'en_core_web_trf' loaded and customized successfully.")
-except OSError:
-    raise RuntimeError(
-        "spaCy model 'en_core_web_trf' not found. "
-        "Please run: python -m spacy download en_core_web_trf"
-    )
+import requests
+import contractions
+from typing import List, Dict
 
 # --- SlangHandler for Dynamic Slang Lookup ---
 class SlangHandler:
     """Handles checking for slang terms via the Urban Dictionary API with caching."""
-    def __init__(self, cache_path="slang_cache.json"):
+    def __init__(self, cache_path: str, timeout: int = 2):
         self.api_url = "https://api.urbandictionary.com/v0/define"
         self.cache_path = cache_path
+        self.timeout = timeout
         self.cache: Dict[str, bool] = self._load_cache()
 
     def _load_cache(self) -> Dict[str, bool]:
         if os.path.exists(self.cache_path):
             try:
-                with open(self.cache_path, 'r') as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, FileNotFoundError):
-                return {}
+                with open(self.cache_path, 'r') as f: return json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError): return {}
         return {}
 
     def _save_cache(self):
-        with open(self.cache_path, 'w') as f:
-            json.dump(self.cache, f)
+        os.makedirs(os.path.dirname(self.cache_path), exist_ok=True)
+        with open(self.cache_path, 'w') as f: json.dump(self.cache, f)
 
     def is_known_slang(self, term: str) -> bool:
         term = term.lower()
-        if term in self.cache:
-            return self.cache[term]
+        if term in self.cache: return self.cache[term]
         try:
-            response = requests.get(self.api_url, params={"term": term}, timeout=2)
+            response = requests.get(self.api_url, params={"term": term}, timeout=self.timeout)
             response.raise_for_status()
             is_slang = bool(response.json().get("list"))
             self.cache[term] = is_slang
@@ -92,56 +42,54 @@ class SlangHandler:
         except (requests.RequestException, ValueError):
             self.cache[term] = False
             return False
-slang_handler = SlangHandler()
 
-kw_extractor = yake.KeywordExtractor(lan="en", n=2, top=1, features=None)
-
-# --- Constants for Text Manipulation ---
-NOISE_TERMS = {'hmmmm', 'mine', 'mind', 'faves', 'a bit lol'}
-VALID_POS = {'NOUN', 'PROPN', 'VERB', 'ADJ'}
-
-def _is_noise(phrase: str, doc: spacy.tokens.Doc) -> bool:
+# --- Helper Functions for Phrase Extraction ---
+def _is_noise(phrase: str, doc, slang_handler: SlangHandler) -> bool:
     """Determines if a phrase is likely conversational noise."""
+    # Note: NOISE_TERMS could also be externalized to config
+    noise_terms = {'hmmmm', 'mine', 'mind', 'faves', 'a bit lol'}
     phrase_lower = phrase.lower()
-    if phrase_lower in NOISE_TERMS: return True
+    if phrase_lower in noise_terms: return True
+
     tokens = [token for token in doc if token.text.lower() in phrase_lower]
     if tokens and all(token.pos_ in {'PRON', 'DET', 'AUX', 'PART', 'INTJ'} for token in tokens): return True
+
+    # Don't filter out short slang terms
     if len(phrase.split()) <= 2 and slang_handler.is_known_slang(phrase): return False
+
     return False
 
-def _shorten_phrase(phrase: str) -> str:
-    """Shortens a long phrase to its most essential keywords."""
+def _shorten_phrase(phrase: str, kw_extractor) -> str:
+    """Shortens a long phrase to its most essential keywords using YAKE."""
     if len(phrase.split()) <= 3: return phrase
     keywords = kw_extractor.extract_keywords(phrase)
     return keywords[0][0] if keywords else phrase
 
-def extract_canonical_phrases(text: str) -> List[str]:
+# --- Main Preprocessing Functions ---
+def extract_canonical_phrases(text: str, nlp, kw_extractor, slang_handler: SlangHandler) -> List[str]:
     """Extracts key phrases from text using NLP, returning canonical forms."""
     if not text: return []
     
     text = contractions.fix(text)
-    text = re.sub(r'(.)\1{2,}', r'\1\1', text)
+    text = re.sub(r'(.)\1{2,}', r'\1\1', text) # Normalize repeated characters
     
     doc = nlp(text.lower())
     
     candidate_phrases = [chunk.text for chunk in doc.noun_chunks]
-    filtered_phrases = [p for p in candidate_phrases if not _is_noise(p, doc) and len(p) > 3]
-    canonical_phrases = [_shorten_phrase(p) for p in filtered_phrases]
+    filtered_phrases = [p for p in candidate_phrases if not _is_noise(p, doc, slang_handler) and len(p) > 3]
+    canonical_phrases = [_shorten_phrase(p, kw_extractor) for p in filtered_phrases]
     
-    return list(dict.fromkeys(canonical_phrases))
+    return list(dict.fromkeys(canonical_phrases)) # Return unique phrases while preserving order
 
 def clean_text(text: str) -> str:
     """Removes extra whitespace from a string."""
-    if not isinstance(text, str):
-        return ""
+    if not isinstance(text, str): return ""
     return re.sub(r'\s+', ' ', text).strip()
 
 def clean_and_truncate(conversation_history: list, max_turns: int = 20) -> list:
-    """
-    Cleans the content of each turn and truncates the conversation history.
-    """
-    if not conversation_history:
-        return []
+    """Cleans the content of each turn and truncates the conversation history."""
+    if not conversation_history: return []
+
     truncated_history = conversation_history[-max_turns:]
     cleaned_history = [
         {**turn, "content": clean_text(turn.get("content", ""))}
