@@ -191,11 +191,12 @@ LOW_AROUSAL_EMOTIONS = {"sadness": -0.5, "fear": -0.6, "disgust": -0.4}
 def analyze_last_message_details(last_turn: Dict[str, Any]) -> Dict[str, Any]:
     """
     Performs a detailed analysis of the last message in the conversation.
+    Returns a dictionary with camelCase keys to match Pydantic model aliases.
     """
     if not last_turn or not last_turn.get("content"):
         return {
-            "is_direct_question": False, "is_low_effort": True, "is_sarcastic": False,
-            "is_ambiguous": False, "is_vulnerable": False, "valence": 0.0, "arousal": 0.0, "intents": []
+            "isDirectQuestion": False, "isLowEffort": True, "isSarcastic": False,
+            "isAmbiguous": False, "isVulnerable": False, "valence": 0.0, "arousal": 0.0, "intents": []
         }
 
     content = last_turn.get("content", "")
@@ -206,11 +207,8 @@ def analyze_last_message_details(last_turn: Dict[str, Any]) -> Dict[str, Any]:
     sentiment_result = sentiment_analyzer.predict(content)
     emotion_result = emotion_analyzer.predict(content)
 
-    # Valence: scaled from -1 (very negative) to 1 (very positive)
     probas = sentiment_result.probas
     valence = probas.get('POS', 0.0) - probas.get('NEG', 0.0)
-
-    # Arousal: inferred from detected emotion
     detected_emotion = emotion_result.output
     arousal = HIGH_AROUSAL_EMOTIONS.get(detected_emotion, 0.0) or LOW_AROUSAL_EMOTIONS.get(detected_emotion, 0.0)
 
@@ -224,22 +222,18 @@ def analyze_last_message_details(last_turn: Dict[str, Any]) -> Dict[str, Any]:
 
     # --- Heuristic-based flag detection ---
     is_low_effort = (word_count <= 3 and content_lower in LOW_EFFORT_PHRASES) or word_count <= 2
-
-    # Heuristic for sarcasm: positive words with negative sentiment
     positive_words = ["love", "great", "amazing", "so fun", "fantastic"]
     has_positive_phrase = any(word in content_lower for word in positive_words)
     is_sarcastic = has_positive_phrase and sentiment_result.output == 'NEG'
-
-    # Heuristic for ambiguity
     ambiguous_phrases = ["i guess", "maybe", "i don't know", "perhaps"]
     is_ambiguous = any(phrase in content_lower for phrase in ambiguous_phrases)
 
     return {
-        "is_direct_question": is_direct_question,
-        "is_low_effort": is_low_effort,
-        "is_sarcastic": is_sarcastic,
-        "is_ambiguous": is_ambiguous,
-        "is_vulnerable": is_vulnerable,
+        "isDirectQuestion": is_direct_question,
+        "isLowEffort": is_low_effort,
+        "isSarcastic": is_sarcastic,
+        "isAmbiguous": is_ambiguous,
+        "isVulnerable": is_vulnerable,
         "valence": round(valence, 2),
         "arousal": round(arousal, 2),
         "intents": detected_intents
