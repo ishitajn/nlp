@@ -38,12 +38,14 @@ def build_final_json(
         last_message_analysis_data = analyze_last_message_details(None)
 
     last_message_analysis = LastMessageAnalysisResponse(**last_message_analysis_data)
-    memory = MemoryResponse(
-        date_arc_phase=memory_features.get("date_arc_phase", "Unknown"),
-        inside_jokes=memory_features.get("inside_jokes", []),
-        avoided_topics=memory_features.get("avoided_topics", []),
-        question_history=memory_features.get("question_history", [])
-    )
+
+    memory_data = {
+        "date_arc_phase": memory_features.get("date_arc_phase", "Unknown"),
+        "inside_jokes": memory_features.get("inside_jokes", []),
+        "avoided_topics": memory_features.get("avoided_topics", []),
+        "question_history": memory_features.get("question_history", [])
+    }
+    memory = MemoryResponse.model_validate(memory_data)
     # Build the conversation_analysis object robustly
     conversation_analysis_data = {
         "conversation_state": behavior.get("conversation_state", "Unknown"),
