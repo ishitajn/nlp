@@ -73,9 +73,9 @@ class MemoryResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     date_arc_phase: str = Field(..., alias="dateArcPhase")
-    inside_jokes: List[str] = Field(..., alias="insideJokes")
-    avoided_topics: List[str] = Field(..., alias="avoidedTopics")
-    question_history: List[Dict[str, str]] = Field(..., alias="questionHistory")
+    inside_jokes: str = Field(..., alias="insideJokes")
+    avoided_topics: str = Field(..., alias="avoidedTopics")
+    question_history: str = Field(..., alias="questionHistory")
 
 class ConversationAnalysisResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
