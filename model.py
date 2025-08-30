@@ -1,7 +1,7 @@
 """
 Defines the Pydantic models for the API request and response structures.
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Literal, Dict, Any
 
 
@@ -51,6 +51,8 @@ class AnalyzePayload(BaseModel):
 # --- Pydantic Models for API Response (Matching Frontend Structure) ---
 
 class LastMessageAnalysisResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     is_direct_question: bool = Field(..., alias="isDirectQuestion")
     is_low_effort: bool = Field(..., alias="isLowEffort")
     is_sarcastic: bool = Field(..., alias="isSarcastic")
@@ -61,12 +63,16 @@ class LastMessageAnalysisResponse(BaseModel):
     intents: List[str]
 
 class MemoryResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     date_arc_phase: str = Field(..., alias="dateArcPhase")
     inside_jokes: List[str] = Field(..., alias="insideJokes")
     avoided_topics: List[str] = Field(..., alias="avoidedTopics")
     question_history: List[Dict[str, str]] = Field(..., alias="questionHistory")
 
 class ConversationAnalysisResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     conversation_state: str = Field(..., alias="conversationState")
     suppress_greeting: bool = Field(..., alias="suppressGreeting")
     last_message_analysis: LastMessageAnalysisResponse = Field(..., alias="lastMessageAnalysis")
@@ -74,6 +80,8 @@ class ConversationAnalysisResponse(BaseModel):
 
 class FinalResponse(BaseModel):
     """Defines the final, nested response structure for the API."""
+    model_config = ConfigDict(populate_by_name=True)
+
     match_id: str = Field(..., alias="matchId")
     response: str
     conversation_analysis: ConversationAnalysisResponse = Field(..., alias="conversationAnalysis")

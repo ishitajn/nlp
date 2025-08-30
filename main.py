@@ -32,39 +32,23 @@ def build_final_json(
     memory_features = context.get("memory_features", {})
     last_message_analysis_data = analysis_data.get("last_message_analysis", {})
 
-    # Defensively handle cases where last_message_analysis might be missing
-    if not last_message_analysis_data:
-        print("WARNING: 'last_message_analysis' key was missing. Generating default structure to prevent crash.")
-        last_message_analysis_data = analyze_last_message_details(None)
-
+    # The `populate_by_name=True` config in the models now handles alias mapping automatically,
+    # so we can instantiate with dictionaries or keyword arguments using python-native snake_case names.
     last_message_analysis = LastMessageAnalysisResponse(**last_message_analysis_data)
+    memory = MemoryResponse(**memory_features)
 
-    memory_data = {
-        "date_arc_phase": memory_features.get("date_arc_phase", "Unknown"),
-        "inside_jokes": memory_features.get("inside_jokes", []),
-        "avoided_topics": memory_features.get("avoided_topics", []),
-        "question_history": memory_features.get("question_history", [])
-    }
-    memory = MemoryResponse.model_validate(memory_data)
-    # Build the conversation_analysis object robustly
-    conversation_analysis_data = {
-        "conversation_state": behavior.get("conversation_state", "Unknown"),
-        "suppress_greeting": not behavior.get("suggest_greeting", True),
-        "last_message_analysis": last_message_analysis,
-        "memory": memory
-    }
-    conversation_analysis = ConversationAnalysisResponse.model_validate(conversation_analysis_data)
+    conversation_analysis = ConversationAnalysisResponse(
+        conversation_state=behavior.get("conversation_state", "Unknown"),
+        suppress_greeting=not behavior.get("suggest_greeting", True),
+        last_message_analysis=last_message_analysis,
+        memory=memory
+    )
 
-    pipeline_version = "modular_semantic_v13.1_enhanced" if ui_settings.use_enhanced_nlp else "modular_semantic_v13.1"
+    pipeline_version = "modular_semantic_v15.0_enhanced" if ui_settings.use_enhanced_nlp else "modular_semantic_v15.0"
 
-    # Prepare debug data if enabled
     debug_data = None
     if ui_settings.debug_mode_enabled:
-        # The suggestion flags logic is now part of the old suggestion engine, so we don't call it separately.
-        debug_data = {
-            "raw_analysis": analysis_data,
-            "geo_features": geo
-        }
+        debug_data = { "raw_analysis": analysis_data, "geo_features": geo }
 
     final_response = FinalResponse(
         match_id=payload.get("matchId"),
